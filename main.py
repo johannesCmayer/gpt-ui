@@ -1,3 +1,4 @@
+import subprocess
 import openai
 import termcolor
 import signal
@@ -24,8 +25,11 @@ parser = argparse.ArgumentParser(usage=
 parser.add_argument('--chat-name', type=str, help='Name of the chat')
 parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
+parser.add_argument('--sync-speech', default=True, action='store_true', help='Sync speech with chat')
+parser.add_argument('--no-sync-speech', action='store_true', help='Sync speech with chat')
 args = parser.parse_args()
 
+args.sync_speech = not args.no_sync_speech
 
 def color_role(s):
     if "system" in s:
@@ -70,6 +74,7 @@ def main():
     else:
         chat = [
                 {"role": "system", "content": "You are a helpful assistant, that answers every question."},
+                {"role": "user", "content": "You are a helpful assistant, that answers every question."},
             ]
 
     print_chat(chat)
@@ -86,7 +91,7 @@ def main():
             if ctrl_d > 0 or user_input == 'exit':
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
                     try:
-                        chat_name = input('Name chat: ')
+                        chat_name = input('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name == 'exit':
@@ -117,7 +122,7 @@ def main():
                 continue 
             elif user_input in ['save', 'sv']:
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
-                    chat_name = input('Name chat: ')
+                    chat_name = input('Name chat: ').strip()
                     if chat_name == 'exit':
                         continue
                     time.sleep(0.1)
@@ -174,16 +179,41 @@ def main():
             )
             complete_response = []
             print(color_role(f'{assistant_name}: '), end='', flush=True)
+            read_buffer = ''
+            subpc = None
             for chunk in response:
                 try:
                     c = chunk.choices[0].delta.content
-                    print(c, end='', flush=True)
+                    if not args.sync_speech:
+                        print(c, end='', flush=True)
                     complete_response.append(c)
+                    read_buffer += c
                     if ctrl_c > 0:
                         ctrl_c = 0
                         break
                 except AttributeError as e:
                     pass
+                if subpc is None or subpc.poll() is not None:
+                    for i,c in enumerate(read_buffer):
+                        if c in ['.', '?', '!']:
+                            reading_buffer = read_buffer[:i+1]
+                            read_buffer = read_buffer[i+1:]
+                            subpc = subprocess.Popen(['say', reading_buffer])
+                            if args.sync_speech:
+                                print(reading_buffer, end='', flush=True)
+                            break
+            while read_buffer != '':
+                if subpc is None or subpc.poll() is not None:
+                    for i,c in enumerate(read_buffer):
+                        if c in ['.', '?', '!']:
+                            reading_buffer = read_buffer[:i+1]
+                            read_buffer = read_buffer[i+1:]
+                            subpc = subprocess.Popen(['say', reading_buffer])
+                            if args.sync_speech:
+                                print(reading_buffer, end='', flush=True)
+                            break
+                    else:
+                        break
             print()
             complete_response = ''.join(complete_response)
             chat.append({"role": "assistant", "content": complete_response})
