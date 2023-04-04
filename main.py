@@ -16,7 +16,11 @@ assistant_name = 'assistant'
 
 chat_dir = project_dir / "chats"
 
-parser = argparse.ArgumentParser(description='Chat with OpenAI GPT-4')
+parser = argparse.ArgumentParser(usage=
+                                   ("\nPress CTRL+C to stop generating the message.\n"
+                                    "In user role press CTRL+D to exit the chat. You will first be asked to save the chat.\n"
+                                    "Press CTRL+D in the safe dialog to exit the program without saving the chat.\n"
+                                    "Enter 'help' as the user role to see all commands you can enter in the user role."))
 parser.add_argument('--chat-name', type=str, help='Name of the chat')
 parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
@@ -128,6 +132,7 @@ def main():
                 list/ls: list all chats
                 load/ld: load a chat
                 save/sv: save the chat
+                vim/vi/nvim: edit the chat with the corresponding command
                 help/h: show this message
                 ''')
                 continue
