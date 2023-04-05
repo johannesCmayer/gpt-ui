@@ -201,6 +201,7 @@ def main():
                 load/ld: load a chat
                 save/sv: save the chat
                 vim/vi/nvim: edit the chat with the corresponding command
+                sync/sy: toggle sync speech
                 help/h: show this message
                 ''')
                 continue
