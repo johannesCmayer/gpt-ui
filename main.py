@@ -8,14 +8,19 @@ import json
 import time
 import yaml
 import os
+import datetime
 
-project_dir = Path(__file__).parent.absolute()
-
-openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 model = 'gpt-4'
 assistant_name = 'assistant'
+default_chat = [
+        {"role": "system", "content": "You are a helpful assistant, that answers every question."},
+    ]
 
+project_dir = Path(__file__).parent.absolute()
 chat_dir = project_dir / "chats"
+chat_backup_file = chat_dir / f".backup_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+
+openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 
 parser = argparse.ArgumentParser(usage=
                                    ("\nPress CTRL+C to stop generating the message.\n"
@@ -25,11 +30,16 @@ parser = argparse.ArgumentParser(usage=
 parser.add_argument('--chat-name', type=str, help='Name of the chat')
 parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
+parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
 parser.add_argument('--sync-speech', default=True, action='store_true', help='Sync speech with chat')
 parser.add_argument('--no-sync-speech', action='store_true', help='Sync speech with chat')
 args = parser.parse_args()
 
 args.sync_speech = not args.no_sync_speech
+
+def backup_chat(chat):
+    with chat_backup_file.open("w") as f:
+        json.dump(chat, f)
 
 def color_role(s):
     if "system" in s:
@@ -51,7 +61,6 @@ def next_role(chat):
     else:
         return "user"
 
-
 ctrl_c = 0
 def signal_handler(sig, frame):
     global ctrl_c
@@ -63,19 +72,17 @@ def main():
     global ctrl_c
     chat_name = args.chat_name
 
-    if args.list_chats:
+    if args.list_chats or args.list_all_chats:
         for c in chat_dir.iterdir():
-            print(f"{c.name}")
+            if args.list_all_chats or not c.name.startswith('.'):
+                print(f"{c.name}")
         exit(0)
 
     if args.load_chat:
-        with chat_dir.joinpath(args.load_chat).open() as f:
+        with (chat_dir / args.load_chat).open() as f:
             chat = json.load(f)
     else:
-        chat = [
-                {"role": "system", "content": "You are a helpful assistant, that answers every question."},
-                {"role": "user", "content": "You are a helpful assistant, that answers every question."},
-            ]
+        chat = default_chat
 
     print_chat(chat)
     active_role = next_role(chat)
@@ -89,6 +96,7 @@ def main():
                 print()
                 ctrl_d += 1
             if ctrl_d > 0 or user_input == 'exit':
+                backup_chat(chat)
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
                     try:
                         chat_name = input('Save name: ')
@@ -101,21 +109,29 @@ def main():
                     json.dump(chat, f)
                 exit(0)
             elif user_input in ['clear', 'cls']:
+                backup_chat(chat)
                 chat = []
                 active_role = next_role(chat)
                 print('\n\n')
                 continue
             elif user_input in ['list', 'ls']:
                 for c in chat_dir.iterdir():
+                    if not c.name.startswith('.'):
+                        print(f"{c.name}")
+                continue
+            elif user_input in ['list all', 'lsa']:
+                for c in chat_dir.iterdir():
                     print(f"{c.name}")
                 continue
             elif user_input in ['load', 'ld']:
                 for c in chat_dir.iterdir():
-                    print(f"{c.name}")
+                    if not c.name.startswith('.'):
+                        print(f"{c.name}")
                 chat_name = input('Name of chat to load: ')
                 if chat_name == 'exit':
                     continue
                 with chat_dir.joinpath(chat_name).open() as f:
+                    backup_chat(chat)
                     chat = json.load(f)
                 print('\n\n')
                 print_chat(chat)
@@ -129,19 +145,8 @@ def main():
                 with (chat_dir / chat_name).open("w") as f:
                     json.dump(chat, f)
                 continue
-            elif user_input in ['help', 'h']:
-                print('''
-                exit: exit the chat
-                regen: regenerate the last assistant message
-                clear: clear the chat
-                list/ls: list all chats
-                load/ld: load a chat
-                save/sv: save the chat
-                vim/vi/nvim: edit the chat with the corresponding command
-                help/h: show this message
-                ''')
-                continue
             elif user_input in ['vi', 'vim', 'nvim']:
+                backup_chat(chat)
                 with (chat_dir / 'temp').open("w") as f:
                     for m in chat:
                         f.write(f"{m['role']}:\n{m['content']}\n\n")
@@ -154,22 +159,39 @@ def main():
                         if line.replace(':', '').strip() in ['system', 'user', 'assistant']:
                             if role != None:
                                 chat.append({"role": role, "content": text.strip()})
+                                backup_chat(chat)
                                 text = ""
                             role = line.replace(':', '').strip()
                         else:
                             text += line
                     chat.append({"role": role, "content": text.strip()})
+                    backup_chat(chat)
                 (chat_dir / 'temp').unlink()
                 print('\n\n')
                 print_chat(chat)
                 continue
             elif len(chat) >= 3 and user_input in ['regenerate', 'regen']:
+                backup_chat(chat)
                 chat = chat[:-1]
                 active_role = next_role(active_role)
                 print('\n\n')
                 print_chat(chat)
                 continue
+            elif user_input in ['help', 'h']:
+                print('''
+                exit: exit the chat
+                regen: regenerate the last assistant message
+                clear: clear the chat
+                list/ls: list chats
+                list all/lsa: list all chats including hidden backup chats
+                load/ld: load a chat
+                save/sv: save the chat
+                vim/vi/nvim: edit the chat with the corresponding command
+                help/h: show this message
+                ''')
+                continue
             chat.append({"role": active_role, "content": user_input})
+            backup_chat(chat)
             active_role = next_role(chat)
         elif active_role == 'assistant':
             response = openai.ChatCompletion.create(
@@ -217,6 +239,7 @@ def main():
             print()
             complete_response = ''.join(complete_response)
             chat.append({"role": "assistant", "content": complete_response})
+            backup_chat(chat)
             active_role = next_role(chat)
 
 if __name__ == "__main__":
