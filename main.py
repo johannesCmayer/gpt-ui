@@ -37,9 +37,19 @@ args = parser.parse_args()
 
 args.sync_speech = not args.no_sync_speech
 
-def backup_chat(chat):
+def backup_chat(chat, name=None, prompt_name=None):
     with chat_backup_file.open("w") as f:
         json.dump(chat, f)
+    if prompt_name:
+        try:
+            name = input("Save name: ")
+            with (chat_dir / name).open("w") as f:
+                json.dump(chat, f)
+        except EOFError as e:
+            pass
+    elif name:
+        with (chat_dir / name).open("w") as f:
+            json.dump(chat, f)
 
 def color_role(s):
     if "system" in s:
@@ -177,6 +187,10 @@ def main():
                 print('\n\n')
                 print_chat(chat)
                 continue
+            elif user_input in ['sync', 'sy']:
+                args.sync_speech = not args.sync_speech
+                print(f"Sync speech: {args.sync_speech}")
+                continue
             elif user_input in ['help', 'h']:
                 print('''
                 exit: exit the chat
@@ -194,11 +208,15 @@ def main():
             backup_chat(chat)
             active_role = next_role(chat)
         elif active_role == 'assistant':
-            response = openai.ChatCompletion.create(
-                model=model,
-                messages=chat,
-                stream = True,
-            )
+            try:
+                response = openai.ChatCompletion.create(
+                    model=model,
+                    messages=chat,
+                    stream = True,
+                )
+            except Exception as e:
+                backup_chat(chat)
+                exit(1)
             complete_response = []
             print(color_role(f'{assistant_name}: '), end='', flush=True)
             read_buffer = ''
@@ -215,6 +233,10 @@ def main():
                         break
                 except AttributeError as e:
                     pass
+                except Exception as e:
+                    print("An error occured.")
+                    backup_chat(chat, prompt_name=True)
+                    raise e
                 if subpc is None or subpc.poll() is not None:
                     for i,c in enumerate(read_buffer):
                         if c in ['.', '?', '!']:
