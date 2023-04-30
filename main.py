@@ -63,17 +63,18 @@ def backup_chat(chat, name=None, prompt_name=None):
         with (chat_dir / name).open("w") as f:
             json.dump(chat, f, indent=4)
 
-def color_role(s):
+def color_role(s, s2=None):
     if "system" in s:
-        return termcolor.colored(s, "red")
+        return termcolor.colored(s2 if s2 else s, "red")
     elif "user" in s:
-        return termcolor.colored(s, "green")
+        return termcolor.colored(s2 if s2 else s, "green")
     else:
-        return termcolor.colored(s, "blue")
+        return termcolor.colored(s2 if s2 else s, "blue")
 
 def print_chat(chat):
     for m in chat:
-        print(f"{color_role(m['role'])}: {m['content']}")
+        name = m['model'] if m['role'] == 'assistant' else (m['user'] if m['role'] == 'user' else 'system')
+        print(f"{color_role(m['role'], name)}: {m['content']}")
 
 def next_role(chat):
     if len(chat) == 0:
@@ -129,7 +130,7 @@ def main():
         if active_role in ['user', 'system'] :
             ctrl_d = 0
             try:
-                user_input = get_input(color_role(f'{active_role}: '))
+                user_input = get_input(color_role(active_role, f'{user}: '))
             except EOFError as e:
                 print()
                 ctrl_d += 1
@@ -197,21 +198,33 @@ def main():
                     chat = []
                     role = None
                     text = ""
+                    last_r = None
                     for line in f:
                         r = None
                         try:
                             r = json.loads(line)
+                            last_r = r
                         except:
                             pass
                         if r:
                             if role:
-                                append_to_chat(chat, role, text.strip())
+                                append_to_chat(chat, 
+                                               role, 
+                                               text.strip(), 
+                                               l_date=r['date'] if r and 'date' in r else None, 
+                                               l_user=r['user'] if r and 'user' in r else None,
+                                               l_model=r['model'] if r and 'model' in r else None)
                             backup_chat(chat)
                             text = ""
                             role = r['role']
                         else:
                             text += line
-                    append_to_chat(chat, role, text.strip())
+                    append_to_chat(chat, 
+                                    role, 
+                                    text.strip(), 
+                                    l_date=last_r['date'] if 'date' in last_r else None, 
+                                    l_user=last_r['user'] if 'user' in last_r else None,
+                                    l_model=last_r['model'] if 'model' in last_r else None)
                     backup_chat(chat)
                 (chat_dir / 'temp').unlink()
                 print('\n\n')
@@ -315,9 +328,9 @@ def trim_chat(chat):
             return list(reversed(reversed(chat)[:i])), num_tokens
     return chat, num_tokens
 
-def append_to_chat(chat, role, content, l_date=None, l_model=None):
+def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    chat.append({'date': l_date if l_date else date, "model": l_model if l_model else model, "role": role, "content": content})
+    chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
     backup_chat(chat)
 
 if __name__ == "__main__":
