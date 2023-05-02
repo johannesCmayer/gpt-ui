@@ -101,7 +101,9 @@ signal.signal(signal.SIGINT, signal_handler)
 
 def main():
     if args.list_models:
-        print(openai.Model.list())
+        print('available models:')
+        for m in sorted(openai.Model.list()['data'], key=lambda x: x['id']): 
+            print(m['id'])
         exit(0)
 
     global ctrl_c
@@ -136,13 +138,16 @@ def main():
                 ctrl_d += 1
             if ctrl_d > 0 or user_input == 'exit':
                 backup_chat(chat)
-                while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
+                while not chat_name or chat_name == '':
                     try:
                         chat_name = get_input('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name == 'exit':
                         exit(0)
+                    if (chat_dir / chat_name).exists() and get_input('Chat already exists. Overwrite? ').lower() != 'y':
+                            chat_name = ''
+                            continue
                     time.sleep(0.1)
                 with (chat_dir / chat_name).open("w") as f:
                     json.dump(chat, f, indent=4)
