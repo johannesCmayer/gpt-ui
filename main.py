@@ -28,6 +28,7 @@ chat_dir = project_dir / "chats"
 chat_backup_file = chat_dir / f".backup_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
+enc = tiktoken.encoding_for_model(model)
 
 parser = argparse.ArgumentParser(usage=
                                    ("\nPress CTRL+C to stop generating the message.\n"
@@ -43,9 +44,6 @@ parser.add_argument('--sync-speech', default=False, action='store_true', help='S
 parser.add_argument('--list-models', action='store_true', help='List all models')
 parser.add_argument('--speak', default=False, action='store_true', help='Speak the messages.')
 args = parser.parse_args()
-
-
-enc = tiktoken.encoding_for_model("gpt-4")
 
 def backup_chat(chat, name=None, prompt_name=None):
     if chat == default_chat or len(chat) == 0:
@@ -98,6 +96,20 @@ def signal_handler(sig, frame):
     ctrl_c += 1
 
 signal.signal(signal.SIGINT, signal_handler)
+
+def trim_chat(chat):
+    num_tokens = 0
+    for i, e in enumerate(reversed(chat)):
+        num_tokens += len(enc.encode(e['content']))
+        if num_tokens > max_tokens:
+            return list(reversed(reversed(chat)[:i])), num_tokens
+    return chat, num_tokens
+
+def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
+    date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
+    backup_chat(chat)
+
 
 def main():
     if args.list_models:
@@ -324,19 +336,6 @@ def main():
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)
             active_role = next_role(chat)
-
-def trim_chat(chat):
-    num_tokens = 0
-    for i, e in enumerate(reversed(chat)):
-        num_tokens += len(enc.encode(e['content']))
-        if num_tokens > max_tokens:
-            return list(reversed(reversed(chat)[:i])), num_tokens
-    return chat, num_tokens
-
-def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
-    date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
-    backup_chat(chat)
 
 if __name__ == "__main__":
     main()
