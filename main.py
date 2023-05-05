@@ -19,7 +19,8 @@ model = 'gpt-4'
 user = 'Johannes'
 max_tokens = 8192
 assistant_name = 'assistant'
-default_chat = [
+SPEAK_DEFAULT = False
+DEFAULT_CHAT = [
         {"role": "system", "content": "You are a helpful assistant, that answers every question."},
     ]
 
@@ -40,13 +41,41 @@ parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--load-last-chat', action='store_true', help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
 parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
-parser.add_argument('--sync-speech', default=False, action='store_true', help='Sync speech with chat')
+parser.add_argument('--sync-speech', default=SPEAK_DEFAULT, action='store_true', help='Sync speech with chat')
 parser.add_argument('--list-models', action='store_true', help='List all models')
-parser.add_argument('--speak', default=False, action='store_true', help='Speak the messages.')
+parser.add_argument('--speak', default=SPEAK_DEFAULT, action='store_true', help='Speak the messages.')
 args = parser.parse_args()
 
+class Command:
+    def __init__(self, str_matches, description):
+        self.str_matches = str_matches
+        self.description = description
+    def __str__(self) -> str:
+        return f"{'/'.join(self.str_matches)}: {self.description}"
+
+class Commands:
+    exit = Command(['exit'], 'Exit the program')
+    pass_ = Command(['pass'], 'Pass the turn of the current role?')
+    clear = Command(['clear'], 'Clear the entire chat (including system message)')
+    list = Command(['list', 'ls'], 'List all saved chats')
+    list_all = Command(['list all', 'ls all'], 'List all saved chats including hidden backup chats')
+    load = Command(['load'], 'Load a chat')
+    save = Command(['save'], 'Save the chat')
+    edit = Command(['vi', 'vim', 'nvim'], 'Edit the chat')
+    regenerate = Command(['regenerate'], 'Regenerate the chat')
+    sync = Command(['sync'], 'Sync the chat with the saved chat')
+    speak = Command(['speak'], 'Speak the messages')
+    speak_last = Command(['speak last', 'sl'], 'Speak the last messages')
+    help = Command(['help', 'h'], 'Show this help message')
+    def __str__(self) -> str:
+        return '\n'.join([str(x) for x in [Commands.exit, Commands.pass_, Commands.clear, Commands.list, \
+                                            Commands.list_all, Commands.load, Commands.save, Commands.edit, \
+                                            Commands.regenerate, Commands.sync, Commands.help]])
+
+commands = Commands()
+
 def backup_chat(chat, name=None, prompt_name=None):
-    if chat == default_chat or len(chat) == 0:
+    if chat == DEFAULT_CHAT or len(chat) == 0:
         return
     with chat_backup_file.open("w") as f:
         json.dump(chat, f, indent=4)
@@ -110,6 +139,16 @@ def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
     backup_chat(chat)
 
+def speak(reading_buffer):
+    speak_commands = ['gsay', 'say']
+    for cmd in speak_commands:
+        proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.wait()
+        if proc.returncode == 0:
+            return subprocess.Popen([cmd, reading_buffer])
+    else:
+        print(f"None of the following speak commands found: {speak_commands}")
+        return None
 
 def main():
     if args.list_models:
@@ -135,7 +174,7 @@ def main():
         with chat_path.open() as f:
             chat = json.load(f)
     else:
-        chat = default_chat
+        chat = DEFAULT_CHAT
 
     print_chat(chat)
     active_role = next_role(chat)
@@ -148,14 +187,14 @@ def main():
             except EOFError as e:
                 print()
                 ctrl_d += 1
-            if ctrl_d > 0 or user_input == 'exit':
+            if ctrl_d > 0 or user_input in commands.exit.str_matches:
                 backup_chat(chat)
                 while not chat_name or chat_name == '':
                     try:
                         chat_name = get_input('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
-                    if ctrl_d > 1 or chat_name == 'exit':
+                    if ctrl_d > 1 or chat_name in commands.exit.str_matches:
                         exit(0)
                     if (chat_dir / chat_name).exists() and get_input('Chat already exists. Overwrite? ').lower() != 'y':
                             chat_name = ''
@@ -164,25 +203,25 @@ def main():
                 with (chat_dir / chat_name).open("w") as f:
                     json.dump(chat, f, indent=4)
                 exit(0)
-            elif user_input in ['pass']:
+            elif user_input in commands.pass_.str_matches:
                 active_role = "assistant"
                 continue
-            elif user_input in ['clear', 'cls']:
+            elif user_input in commands.clear.str_matches:
                 backup_chat(chat)
                 chat = []
                 active_role = next_role(chat)
                 print('\n\n')
                 continue
-            elif user_input in ['list', 'ls']:
+            elif user_input in commands.list.str_matches:
                 for c in chat_dir.iterdir():
                     if not c.name.startswith('.'):
                         print(f"{c.name}")
                 continue
-            elif user_input in ['list all', 'lsa']:
+            elif user_input in commands.list_all.str_matches:
                 for c in chat_dir.iterdir():
                     print(f"{c.name}")
                 continue
-            elif user_input in ['load', 'ld']:
+            elif user_input in commands.load.str_matches:
                 for c in chat_dir.iterdir():
                     if not c.name.startswith('.'):
                         print(f"{c.name}")
@@ -195,7 +234,7 @@ def main():
                 print('\n\n')
                 print_chat(chat)
                 continue 
-            elif user_input in ['save', 'sv']:
+            elif user_input in commands.save.str_matches:
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
                     chat_name = get_input('Name chat: ').strip()
                     if chat_name == 'exit':
@@ -204,7 +243,7 @@ def main():
                 with (chat_dir / chat_name).open("w") as f:
                     json.dump(chat, f, indent=4)
                 continue
-            elif user_input in ['vi', 'vim', 'nvim']:
+            elif user_input in commands.edit.str_matches:
                 backup_chat(chat)
                 with (chat_dir / 'temp').open("w") as f:
                     for m in chat:
@@ -247,30 +286,27 @@ def main():
                 print('\n\n')
                 print_chat(chat)
                 continue
-            elif len(chat) >= 3 and user_input in ['regenerate', 'regen']:
+            elif len(chat) >= 3 and user_input in commands.regenerate.str_matches:
                 backup_chat(chat)
                 chat = chat[:-1]
                 active_role = next_role(active_role)
                 print('\n\n')
                 print_chat(chat)
                 continue
-            elif user_input in ['sync', 'sy']:
+            elif user_input in commands.sync.str_matches:
                 args.sync_speech = not args.sync_speech
                 print(f"Sync speech: {args.sync_speech}")
                 continue
-            elif user_input in ['help', 'h']:
-                print('''
-                exit: exit the chat
-                regen: regenerate the last assistant message
-                clear: clear the chat
-                list/ls: list chats
-                list all/lsa: list all chats including hidden backup chats
-                load/ld: load a chat
-                save/sv: save the chat
-                vim/vi/nvim: edit the chat with the corresponding command
-                sync/sy: toggle sync speech
-                help/h: show this message
-                ''')
+            elif user_input in commands.speak.str_matches:
+                args.speak = not args.speak
+                args.sync_speech = args.speak
+                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}")
+                continue
+            elif user_input in commands.help.str_matches:
+                print(commands)
+                continue
+            elif user_input in commands.speak_last.str_matches:
+                speak(chat[-1]['content'])
                 continue
             append_to_chat(chat, active_role, user_input)
             backup_chat(chat)
@@ -315,23 +351,23 @@ def main():
                             reading_buffer = read_buffer[:i+1]
                             read_buffer = read_buffer[i+1:]
                             if args.speak:
-                                subpc = subprocess.Popen(['say', reading_buffer])
+                                subpc = speak(reading_buffer)
                                 if args.sync_speech:
                                     print(reading_buffer, end='', flush=True)
                                 break
-            while read_buffer != '':
-                if subpc is None or subpc.poll() is not None:
-                    for i,c in enumerate(read_buffer):
-                        if c in ['.', '?', '!']:
-                            reading_buffer = read_buffer[:i+1]
-                            read_buffer = read_buffer[i+1:]
-                            if args.speak:
-                                subpc = subprocess.Popen(['say', reading_buffer])
-                                if args.sync_speech:
-                                    print(reading_buffer, end='', flush=True)
+                while read_buffer != '':
+                    if subpc is None or subpc.poll() is not None:
+                        for i,c in enumerate(read_buffer):
+                            if c in ['.', '?', '!']:
+                                reading_buffer = read_buffer[:i+1]
+                                read_buffer = read_buffer[i+1:]
+                                if args.speak:
+                                    subpc = subprocess.Popen(['say', reading_buffer])
+                                    if args.sync_speech:
+                                        print(reading_buffer, end='', flush=True)
+                                break
+                        else:
                             break
-                    else:
-                        break
             print()
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)
