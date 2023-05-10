@@ -344,17 +344,7 @@ def main():
                     print("\nAn error occured.")
                     backup_chat(chat, prompt_name=True)
                     raise e
-                    
-                if subpc is None or subpc.poll() is not None:
-                    for i,c in enumerate(read_buffer):
-                        if c in ['. ', '? ', '! ', '\n']:
-                            reading_buffer = read_buffer[:i+1]
-                            read_buffer = read_buffer[i+1:]
-                            if args.speak:
-                                subpc = speak(reading_buffer)
-                                if args.sync_speech:
-                                    print(reading_buffer, end='', flush=True)
-                                break
+
                 while read_buffer != '':
                     if subpc is None or subpc.poll() is not None:
                         for i,c in enumerate(read_buffer):
@@ -362,7 +352,7 @@ def main():
                                 reading_buffer = read_buffer[:i+1]
                                 read_buffer = read_buffer[i+1:]
                                 if args.speak:
-                                    subpc = subprocess.Popen(['say', reading_buffer])
+                                    subpc = speak(reading_buffer)
                                     if args.sync_speech:
                                         print(reading_buffer, end='', flush=True)
                                 break
