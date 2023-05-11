@@ -17,6 +17,7 @@ import termcolor
 
 model = 'gpt-4'
 user = 'Johannes'
+speak_lang = 'en'
 max_tokens = 8192
 assistant_name = 'assistant'
 SPEAK_DEFAULT = False
@@ -64,13 +65,16 @@ class Commands:
     edit = Command(['vi', 'vim', 'nvim'], 'Edit the chat')
     regenerate = Command(['regenerate'], 'Regenerate the chat')
     sync = Command(['sync'], 'Sync the chat with the saved chat')
-    speak = Command(['speak'], 'Speak the messages')
+    speak = Command(['speak', 's'], 'Speak the messages')
+    speak_en = Command(['speak en', 's en'], 'Speak the messages and set language to english')
+    speak_de = Command(['speak de', 's de'], 'Speak the messages and set language to german')
     speak_last = Command(['speak last', 'sl'], 'Speak the last messages')
     help = Command(['help', 'h'], 'Show this help message')
     def __str__(self) -> str:
         return '\n'.join([str(x) for x in [Commands.exit, Commands.pass_, Commands.clear, Commands.list, \
                                             Commands.list_all, Commands.load, Commands.save, Commands.edit, \
-                                            Commands.regenerate, Commands.sync, Commands.help]])
+                                            Commands.regenerate, Commands.sync, Commands.speak, Commands.speak_en, \
+                                            Commands.speak_de, Commands.speak_last, Commands.help]])
 
 commands = Commands()
 
@@ -140,17 +144,22 @@ def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     backup_chat(chat)
 
 def speak(reading_buffer):
-    speak_commands = ['gsay', 'say']
-    for cmd in speak_commands:
-        proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        proc.wait()
-        if proc.returncode == 0:
-            return subprocess.Popen([cmd, reading_buffer])
-    else:
-        print(f"None of the following speak commands found: {speak_commands}")
+    cmd = 'say'
+    proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc.wait()
+    if proc.returncode != 0:
+        print(f"'say' command not fonud")
         return None
 
+    if speak_lang == 'en':
+        return subprocess.Popen([cmd, reading_buffer])
+    elif speak_lang == 'de':
+        return subprocess.Popen([cmd, '--voice', 'Ann', reading_buffer])
+    else:
+        raise Exception(f"Unknown language {speak_lang}")
+
 def main():
+    global speak_lang
     if args.list_models:
         print('available models:')
         for m in sorted(openai.Model.list()['data'], key=lambda x: x['id']): 
@@ -300,7 +309,19 @@ def main():
             elif user_input in commands.speak.str_matches:
                 args.speak = not args.speak
                 args.sync_speech = args.speak
-                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}")
+                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
+                continue
+            elif user_input in commands.speak_en.str_matches:
+                args.speak = True
+                args.sync_speech = True
+                speak_lang = 'en'
+                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
+                continue
+            elif user_input in commands.speak_de.str_matches:
+                args.speak = True
+                args.sync_speech = True
+                speak_lang = 'de'
+                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
                 continue
             elif user_input in commands.help.str_matches:
                 print(commands)
