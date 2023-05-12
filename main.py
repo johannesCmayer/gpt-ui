@@ -87,7 +87,7 @@ class Commands:
 commands = Commands()
 
 def backup_chat(chat, name=None, prompt_name=None):
-    if chat == DEFAULT_CHAT or len(chat) == 0:
+    if len(chat) == 0:
         return
     with chat_backup_file.open("w") as f:
         json.dump(chat, f, indent=4)
@@ -180,7 +180,7 @@ def main():
     chat_name = args.chat_name
 
     if args.list_chats or args.list_all_chats:
-        for chars in chat_dir.iterdir():
+        for chars in sorted(chat_dir.iterdir()):
             if args.list_all_chats or not chars.name.startswith('.'):
                 print(f"{chars.name}")
         exit(0)
@@ -192,7 +192,7 @@ def main():
         with (chat_dir / args.load_chat).open() as f:
             chat = json.load(f)
     if args.load_last_chat:
-        chat_path = [x for x in sorted(chat_dir.iterdir()) if x.is_file() and x.name.startswith('.')][-1]
+        chat_path = [x for x in sorted(chat_dir.iterdir()) if x.is_file() and x.name.startswith('.backup')][-1]
         with chat_path.open() as f:
             chat = json.load(f)
     else:
@@ -307,15 +307,24 @@ def main():
             active_role = next_role(chat)
         elif active_role == 'assistant':
             chat, num_tokens = trim_chat(chat)
-            try:
-                response = openai.ChatCompletion.create(
-                    model=model,
-                    messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in chat],
-                    stream = True,
-                )
-            except Exception as e:
-                backup_chat(chat)
-                raise {e}
+            retries = 5
+            n_retries = 0
+            for i in range(retries):
+                try:
+                    response = openai.ChatCompletion.create(
+                        model=model,
+                        messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in chat],
+                        stream = True,
+                    )
+                    break
+                except Exception as e:
+                    print(f"try {n_retries}/{retries}")
+                    print(f"Error: {e}")
+                    if n_retries >= retries:
+                        backup_chat(chat)
+                        raise {e}
+                    n_retries += 1
+                    time.sleep(1)
             complete_response = []
             print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}: '), end='', flush=True)
             read_buffer = ''
