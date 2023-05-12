@@ -369,7 +369,7 @@ def main():
                 while read_buffer != '':
                     if subpc is None or subpc.poll() is not None:
                         for i,c in enumerate(read_buffer):
-                            if c in ['.', '?', '!']:
+                            if c in ['. ', '? ', '! ', '\n']:
                                 reading_buffer = read_buffer[:i+1]
                                 read_buffer = read_buffer[i+1:]
                                 if args.speak:
