@@ -139,11 +139,13 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 def trim_chat(chat):
-    num_tokens = 0
+    num_tokens = len(enc.encode(chat[0]['content'] + chat[0]['role']))
     for i, e in enumerate(reversed(chat)):
-        num_tokens += len(enc.encode(e['content']))
+        if i == 0:
+            continue
+        num_tokens += len(enc.encode(e['content'] + ' ' + e['role']))
         if num_tokens > max_tokens:
-            return list(reversed(reversed(chat)[:i])), num_tokens
+            return chat[0] + list(reversed(list(reversed(chat[1:]))[:i])), num_tokens
     return chat, num_tokens
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
@@ -322,19 +324,17 @@ def main():
                 c = None
                 try:
                     c = chunk.choices[0].delta.content
-                    if not args.sync_speech:
-                        print(c, end='', flush=True)
                     complete_response.append(c)
                     read_buffer += c
-                    if ctrl_c > 0:
-                        ctrl_c = 0
-                        break
                 except AttributeError as e:
                     pass
                 except Exception as e:
                     print("\nAn error occured.")
                     backup_chat(chat, prompt_name=True)
                     raise e
+
+                if not args.sync_speech:
+                    print(c, end='', flush=True)
 
                 if speak_subproc is None or speak_subproc.poll() is not None:
                     for i,chars in enumerate(read_buffer):
@@ -346,6 +346,19 @@ def main():
                                 if args.sync_speech:
                                     print(reading_buffer, end='', flush=True)
                             break
+                
+                if ctrl_c > 0:
+                    ctrl_c = 0
+                    break
+
+            # Speak the remaning buffer
+            while True:
+                if args.speak and speak_subproc.poll() is not None:
+                    speak_subproc = speak(read_buffer)
+                    if args.sync_speech:
+                        print(read_buffer, end='', flush=True)
+                    break
+
             print()
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)

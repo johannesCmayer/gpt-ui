@@ -1,5 +1,8 @@
 A trigger is a condition that should trigger the implementation of a specific thing.
 
+# Bugs
+- The trim chat function doesn't work properly. You can have the case that you send contacts that is too long to the OpenAI API and then it crashes which happens every time you have a long chat. 
+
 # Refactor
 - Refactor all the stuff
     - Figure out what to refactor
