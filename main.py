@@ -15,6 +15,9 @@ import yaml
 import openai
 import termcolor
 
+def timestamp():
+    return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
+
 assistant_name = 'assistant'
 DEFAULT_CHAT = [
         {"role": "system", "content": "You are a helpful assistant, that answers every question."},
@@ -22,7 +25,7 @@ DEFAULT_CHAT = [
 
 project_dir = Path(__file__).parent.absolute()
 chat_dir = project_dir / "chats"
-chat_backup_file = chat_dir / f".backup_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+chat_backup_file = chat_dir / f".backup_{timestamp()}"
 config_file = project_dir / "config.yaml"
 
 config = yaml.load(config_file.open(), yaml.FullLoader)
@@ -144,7 +147,7 @@ def trim_chat(chat):
     return chat, num_tokens
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
-    date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    date = timestamp()
     chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
     backup_chat(chat)
 
@@ -175,9 +178,9 @@ def main():
     chat_name = args.chat_name
 
     if args.list_chats or args.list_all_chats:
-        for c in chat_dir.iterdir():
-            if args.list_all_chats or not c.name.startswith('.'):
-                print(f"{c.name}")
+        for chars in chat_dir.iterdir():
+            if args.list_all_chats or not chars.name.startswith('.'):
+                print(f"{chars.name}")
         exit(0)
     elif args.config:
         os.system(f"vi {config_file}")
@@ -230,18 +233,18 @@ def main():
                 print('\n\n')
                 continue
             elif user_input in commands.list.str_matches:
-                for c in chat_dir.iterdir():
-                    if not c.name.startswith('.'):
-                        print(f"{c.name}")
+                for chars in chat_dir.iterdir():
+                    if not chars.name.startswith('.'):
+                        print(f"{chars.name}")
                 continue
             elif user_input in commands.list_all.str_matches:
-                for c in chat_dir.iterdir():
-                    print(f"{c.name}")
+                for chars in chat_dir.iterdir():
+                    print(f"{chars.name}")
                 continue
             elif user_input in commands.load.str_matches:
-                for c in chat_dir.iterdir():
-                    if not c.name.startswith('.'):
-                        print(f"{c.name}")
+                for chars in chat_dir.iterdir():
+                    if not chars.name.startswith('.'):
+                        print(f"{chars.name}")
                 chat_name = get_input('Name of chat to load: ')
                 if chat_name == 'exit':
                     continue
@@ -261,47 +264,7 @@ def main():
                     json.dump(chat, f, indent=4)
                 continue
             elif user_input in commands.edit.str_matches:
-                backup_chat(chat)
-                with (chat_dir / 'temp').open("w") as f:
-                    for m in chat:
-                        prefix = json.dumps({k: v for k, v in m.items() if k != 'content'})
-                        f.write(f"{prefix}\n{m['content']}\n\n")
-                os.system(f"{user_input} {chat_dir / 'temp'}")
-                with (chat_dir / 'temp').open() as f:
-                    chat = []
-                    role = None
-                    text = ""
-                    last_r = None
-                    for line in f:
-                        r = None
-                        try:
-                            r = json.loads(line)
-                            last_r = r
-                        except:
-                            pass
-                        if r:
-                            if role:
-                                append_to_chat(chat, 
-                                               role, 
-                                               text.strip(), 
-                                               l_date=r['date'] if r and 'date' in r else None, 
-                                               l_user=r['user'] if r and 'user' in r else None,
-                                               l_model=r['model'] if r and 'model' in r else None)
-                            backup_chat(chat)
-                            text = ""
-                            role = r['role']
-                        else:
-                            text += line
-                    append_to_chat(chat, 
-                                    role, 
-                                    text.strip(), 
-                                    l_date=last_r['date'] if 'date' in last_r else None, 
-                                    l_user=last_r['user'] if 'user' in last_r else None,
-                                    l_model=last_r['model'] if 'model' in last_r else None)
-                    backup_chat(chat)
-                (chat_dir / 'temp').unlink()
-                print('\n\n')
-                print_chat(chat)
+                chat = edit_chat(chat, user_input)
                 continue
             elif len(chat) >= 3 and user_input in commands.regenerate.str_matches:
                 backup_chat(chat)
@@ -341,23 +304,22 @@ def main():
             backup_chat(chat)
             active_role = next_role(chat)
         elif active_role == 'assistant':
-            while True:
-                chat, num_tokens = trim_chat(chat)
-                try:
-                    response = openai.ChatCompletion.create(
-                        model=model,
-                        messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in chat],
-                        stream = True,
-                    )
-                    break
-                except Exception as e:
-                    backup_chat(chat)
-                    raise {e}
+            chat, num_tokens = trim_chat(chat)
+            try:
+                response = openai.ChatCompletion.create(
+                    model=model,
+                    messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in chat],
+                    stream = True,
+                )
+            except Exception as e:
+                backup_chat(chat)
+                raise {e}
             complete_response = []
             print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}: '), end='', flush=True)
             read_buffer = ''
-            subpc = None
+            speak_subproc = None
             for chunk in response:
+                c = None
                 try:
                     c = chunk.choices[0].delta.content
                     if not args.sync_speech:
@@ -374,23 +336,68 @@ def main():
                     backup_chat(chat, prompt_name=True)
                     raise e
 
-                while read_buffer != '':
-                    if subpc is None or subpc.poll() is not None:
-                        for i,c in enumerate(read_buffer):
-                            if c in ['. ', '? ', '! ', '\n']:
-                                reading_buffer = read_buffer[:i+1]
-                                read_buffer = read_buffer[i+1:]
-                                if args.speak:
-                                    subpc = speak(reading_buffer)
-                                    if args.sync_speech:
-                                        print(reading_buffer, end='', flush=True)
-                                break
-                        else:
+                if speak_subproc is None or speak_subproc.poll() is not None:
+                    for i,chars in enumerate(read_buffer):
+                        if chars in ['.', '?', '!']:
+                            reading_buffer = read_buffer[:i+1]
+                            read_buffer = read_buffer[i+1:]
+                            if args.speak:
+                                speak_subproc = speak(reading_buffer)
+                                if args.sync_speech:
+                                    print(reading_buffer, end='', flush=True)
                             break
             print()
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)
             active_role = next_role(chat)
+
+def edit_chat(chat, user_input):
+    backup_chat(chat)
+    meta_data_prefix = f"###>>>"
+    with (chat_dir / 'temp').open("w") as f:
+        for m in chat:
+            meta_data = json.dumps({k: v for k, v in m.items() if k != 'content'})
+            f.write(f"{meta_data_prefix}{meta_data}\n{m['content']}\n\n")
+        meta_data = json.dumps({'role': next_role(chat), 'model': model, 'user': user, 'date': timestamp()})
+        f.write(f"{meta_data_prefix}{meta_data}\n\n")
+    os.system(f"{user_input} {chat_dir / 'temp'}")
+    with (chat_dir / 'temp').open() as f:
+        chat = []
+        role = None
+        text = ""
+        last_r = None
+        for line in f:
+            r = None
+            if line.startswith(meta_data_prefix):
+                r = json.loads(line[len(meta_data_prefix):])
+                last_r = r
+            if r:
+                if role:
+                    append_to_chat(
+                        chat, 
+                        role, 
+                        text.strip(), 
+                        l_date=r['date'] if r and 'date' in r else None, 
+                        l_user=r['user'] if r and 'user' in r else None,
+                        l_model=r['model'] if r and 'model' in r else None)
+                backup_chat(chat)
+                text = ""
+                role = r['role']
+            else:
+                text += line
+        if text.strip() != "":
+            append_to_chat(
+                chat, 
+                role, 
+                text.strip(), 
+                l_date=last_r['date'] if 'date' in last_r else None, 
+                l_user=last_r['user'] if 'user' in last_r else None,
+                l_model=last_r['model'] if 'model' in last_r else None)
+        backup_chat(chat)
+    (chat_dir / 'temp').unlink()
+    print('\n\n')
+    print_chat(chat)
+    return chat
 
 if __name__ == "__main__":
     main()
