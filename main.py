@@ -15,12 +15,7 @@ import yaml
 import openai
 import termcolor
 
-model = 'gpt-4'
-user = 'Johannes'
-speak_lang = 'en'
-max_tokens = 8192
 assistant_name = 'assistant'
-SPEAK_DEFAULT = False
 DEFAULT_CHAT = [
         {"role": "system", "content": "You are a helpful assistant, that answers every question."},
     ]
@@ -28,6 +23,15 @@ DEFAULT_CHAT = [
 project_dir = Path(__file__).parent.absolute()
 chat_dir = project_dir / "chats"
 chat_backup_file = chat_dir / f".backup_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+config_file = project_dir / "config.yaml"
+
+config = yaml.load(config_file.open(), yaml.FullLoader)
+model = config['model']
+user = config['user']
+speak_lang = config['speak_language']
+max_tokens_dict = { 'gpt-4': 8192 }
+max_tokens = max_tokens_dict[model]
+speak_default = config['speak']
 
 openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 enc = tiktoken.encoding_for_model(model)
@@ -42,9 +46,10 @@ parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--load-last-chat', action='store_true', help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
 parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
-parser.add_argument('--sync-speech', default=SPEAK_DEFAULT, action='store_true', help='Sync speech with chat')
+parser.add_argument('--sync-speech', default=speak_default, action='store_true', help='Sync speech with chat')
 parser.add_argument('--list-models', action='store_true', help='List all models')
-parser.add_argument('--speak', default=SPEAK_DEFAULT, action='store_true', help='Speak the messages.')
+parser.add_argument('--speak', default=speak_default, action='store_true', help='Speak the messages.')
+parser.add_argument('--config', action='store_true', help='Open the config file.')
 args = parser.parse_args()
 
 class Command:
@@ -173,6 +178,9 @@ def main():
         for c in chat_dir.iterdir():
             if args.list_all_chats or not c.name.startswith('.'):
                 print(f"{c.name}")
+        exit(0)
+    elif args.config:
+        os.system(f"vi {config_file}")
         exit(0)
 
     if args.load_chat:
