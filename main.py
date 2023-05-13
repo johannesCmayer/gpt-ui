@@ -362,7 +362,7 @@ def main():
 
             # Speak the remaning buffer
             while True:
-                if args.speak and speak_subproc.poll() is not None:
+                if args.speak and (speak_subproc == None or speak_subproc.poll() is not None):
                     speak_subproc = speak(read_buffer)
                     if args.sync_speech:
                         print(read_buffer, end='', flush=True)
