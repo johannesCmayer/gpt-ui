@@ -8,7 +8,6 @@ import json
 import time
 import os
 import datetime
-import readline
 
 import tiktoken
 import yaml
@@ -113,7 +112,7 @@ def color_role(s, s2=None):
 def print_chat(chat):
     for m in chat:
         name = m['model'] if m['role'] == 'assistant' else (m['user'] if m['role'] == 'user' else 'system')
-        print(f"{color_role(m['role'], name)}: {m['content']}")
+        print(f"{color_role(m['role'], name)}:\n{m['content']}")
 
 def next_role(chat):
     if len(chat) == 0:
@@ -139,14 +138,15 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 def trim_chat(chat):
-    num_tokens = len(enc.encode(chat[0]['content'] + chat[0]['role']))
-    for i, e in enumerate(reversed(chat)):
-        if i == 0:
-            continue
+    num_tokens = len(enc.encode(chat[0]['content']))
+    new_chat = []
+    for i, e in enumerate(reversed(chat[1:])):
         num_tokens += len(enc.encode(e['content'] + ' ' + e['role']))
         if num_tokens > max_tokens:
-            return chat[0] + list(reversed(list(reversed(chat[1:]))[:i])), num_tokens
-    return chat, num_tokens
+            break
+        new_chat.append(e)
+    new_chat = list(reversed(new_chat))
+    return [chat[0]] + new_chat, num_tokens
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     date = timestamp()
@@ -205,7 +205,7 @@ def main():
         if active_role in ['user', 'system'] :
             ctrl_d = 0
             try:
-                user_input = get_input(color_role(active_role, f'{user}: '))
+                user_input = get_input(color_role(active_role, f'{user}:\n'))
             except EOFError as e:
                 print()
                 ctrl_d += 1
@@ -326,7 +326,7 @@ def main():
                     n_retries += 1
                     time.sleep(1)
             complete_response = []
-            print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}: '), end='', flush=True)
+            print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:\n'), end='', flush=True)
             read_buffer = ''
             speak_subproc = None
             for chunk in response:

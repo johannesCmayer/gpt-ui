@@ -1,7 +1,8 @@
 A trigger is a condition that should trigger the implementation of a specific thing.
 
 # Bugs
-- The trim chat function doesn't work properly. You can have the case that you send contacts that is too long to the OpenAI API and then it crashes which happens every time you have a long chat. 
+- The trim chat function doesn't work properly. You can have the case that you send contacts that is too long to the OpenAI API and then it crashes which happens every time you have a long chat.
+- Often I just get an empty response, i.e. I am entering a message as the user, pressing enter, and then GPT just returns an empty string and it immediately goes back to me.
 
 # Refactor
 - Refactor all the stuff
@@ -20,6 +21,7 @@ A trigger is a condition that should trigger the implementation of a specific th
 - Use some GUI instead of CLI, that allows to edit text anywhere.
 
 # Features
+- Make GPT automatically generate the names for the chats
 - Add templating functionality, i.e. allow to insert pre-written templates into the conversation e.g. to modify GPT's behavior in specific ways.
 - Add functionality to create <branches/threads> during the conversation, mainly to conserve context
     - Trigger: It actually becomes a problem that I run out of context (not just that I do run out of context) when using GPT
