@@ -355,9 +355,9 @@ def main():
             active_role = next_role(chat)
         elif active_role == 'assistant':
             chat, num_tokens = trim_chat(chat)
-            retries = 5
-            n_retries = 0
-            for i in range(retries):
+            max_retries = 5
+            n_max_retries = 0
+            for i in range(max_retries):
                 try:
                     response = openai.ChatCompletion.create(
                         model=model,
@@ -366,15 +366,16 @@ def main():
                     )
                     break
                 except Exception as e:
-                    print(f"try {n_retries}/{retries}")
+                    print(f"try {n_max_retries}/{max_retries}")
                     print(f"Error: {e}")
-                    if n_retries >= retries:
+                    if n_max_retries >= max_retries:
                         backup_chat(chat)
                         raise {e}
-                    n_retries += 1
+                    n_max_retries += 1
                     time.sleep(1)
             complete_response = []
             print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:\n'), end='', flush=True)
+
             read_buffer = ''
             speak_subproc = None
             for chunk in response:
