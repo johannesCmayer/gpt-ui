@@ -8,19 +8,28 @@ import json
 import time
 import os
 import datetime
+import sys
+from copy import deepcopy
 
 import tiktoken
 import yaml
 import openai
 import termcolor
 
+if sys.platform == 'linux':
+    import readline
+    readline.parse_and_bind("tab: complete")
+    readline.parse_and_bind("set horizontal-scroll-mode On")
+    readline.parse_and_bind("set enable-keypad On")
+
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
 
 assistant_name = 'assistant'
-DEFAULT_CHAT = [
+def GET_DEFAULT_CHAT(): 
+    return deepcopy([
         {"role": "system", "content": "You are a helpful assistant, that answers every question."},
-    ]
+    ])
 
 project_dir = Path(__file__).parent.absolute()
 chat_dir = project_dir / "chats"
@@ -30,7 +39,6 @@ config_file = project_dir / "config.yaml"
 config = yaml.load(config_file.open(), yaml.FullLoader)
 model = config['model']
 user = config['user']
-speak_lang = config['speak_language']
 max_tokens_dict = { 'gpt-4': 8192 }
 max_tokens = max_tokens_dict[model]
 speak_default = config['speak']
@@ -48,11 +56,15 @@ parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--load-last-chat', action='store_true', help='Name of the chat to load')
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
 parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
-parser.add_argument('--sync-speech', default=speak_default, action='store_true', help='Sync speech with chat')
 parser.add_argument('--list-models', action='store_true', help='List all models')
 parser.add_argument('--speak', default=speak_default, action='store_true', help='Speak the messages.')
 parser.add_argument('--config', action='store_true', help='Open the config file.')
+parser.add_argument('user_input',  type=str, nargs='*', help='Initial input the user gives to the chat bot.')
 args = parser.parse_args()
+if args.user_input == []:
+    args.user_input = None
+if args.user_input and " " in args.user_input:
+    args.user_input = " ".join(args.user_input)
 
 class Command:
     def __init__(self, str_matches, description):
@@ -71,7 +83,6 @@ class Commands:
     save = Command(['save'], 'Save the chat')
     edit = Command(['vi', 'vim', 'nvim'], 'Edit the chat')
     regenerate = Command(['regenerate'], 'Regenerate the chat')
-    sync = Command(['sync'], 'Sync the chat with the saved chat')
     speak = Command(['speak', 's'], 'Speak the messages')
     speak_en = Command(['speak en', 's en'], 'Speak the messages and set language to english')
     speak_de = Command(['speak de', 's de'], 'Speak the messages and set language to german')
@@ -80,7 +91,7 @@ class Commands:
     def __str__(self) -> str:
         return '\n'.join([str(x) for x in [Commands.exit, Commands.pass_, Commands.clear, Commands.list, \
                                             Commands.list_all, Commands.load, Commands.save, Commands.edit, \
-                                            Commands.regenerate, Commands.sync, Commands.speak, Commands.speak_en, \
+                                            Commands.regenerate, Commands.speak, Commands.speak_en, \
                                             Commands.speak_de, Commands.speak_last, Commands.help]])
 
 commands = Commands()
@@ -130,7 +141,7 @@ def trim_chat(chat):
     num_tokens = len(enc.encode(chat[0]['content']))
     new_chat = []
     for i, e in enumerate(reversed(chat[1:])):
-        num_tokens += len(enc.encode(e['content'] + ' ' + e['role']))
+        num_tokens += len(enc.encode(e['content']))
         if num_tokens > max_tokens:
             break
         new_chat.append(e)
@@ -202,22 +213,16 @@ def edit_chat(chat, user_input):
     return chat
 
 def speak(reading_buffer):
-    cmd = 'say'
+    cmd = 'gsay'
     proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     proc.wait()
     if proc.returncode != 0:
-        print(f"'say' command not fonud")
+        print(f"No speak command foud from this list: {cmds}")
         return None
 
-    if speak_lang == 'en':
-        return subprocess.Popen([cmd, reading_buffer])
-    elif speak_lang == 'de':
-        return subprocess.Popen([cmd, '--voice', 'Ann', reading_buffer])
-    else:
-        raise Exception(f"Unknown language {speak_lang}")
+    subprocess.Popen([cmd, reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 def main():
-    global speak_lang
     if args.list_models:
         print('available models:')
         for m in sorted(openai.Model.list()['data'], key=lambda x: x['id']): 
@@ -236,17 +241,21 @@ def main():
         os.system(f"vi {config_file}")
         exit(0)
 
-    if args.load_chat:
+    if args.user_input:
+        chat = GET_DEFAULT_CHAT()
+        chat.append({'role': 'user', 'content': args.user_input, 'user': config['user']})
+    elif args.load_chat:
         with (chat_dir / args.load_chat).open() as f:
             chat = json.load(f)
-    if args.load_last_chat:
+    elif args.load_last_chat:
         chat_path = [x for x in sorted(chat_dir.iterdir()) if x.is_file() and x.name.startswith('.backup')][-1]
         with chat_path.open() as f:
             chat = json.load(f)
     else:
-        chat = DEFAULT_CHAT
+        chat = GET_DEFAULT_CHAT()
 
     print_chat(chat)
+
     active_role = next_role(chat)
 
     while True:
@@ -323,26 +332,9 @@ def main():
                 print('\n\n')
                 print_chat(chat)
                 continue
-            elif user_input in commands.sync.str_matches:
-                args.sync_speech = not args.sync_speech
-                print(f"Sync speech: {args.sync_speech}")
-                continue
             elif user_input in commands.speak.str_matches:
                 args.speak = not args.speak
-                args.sync_speech = args.speak
-                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
-                continue
-            elif user_input in commands.speak_en.str_matches:
-                args.speak = True
-                args.sync_speech = True
-                speak_lang = 'en'
-                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
-                continue
-            elif user_input in commands.speak_de.str_matches:
-                args.speak = True
-                args.sync_speech = True
-                speak_lang = 'de'
-                print(f"Speak messages: {args.speak}, Sync speech: {args.sync_speech}, language: {speak_lang}")
+                print(f"Speak messages: {args.speak}")
                 continue
             elif user_input in commands.help.str_matches:
                 print(commands)
@@ -354,6 +346,7 @@ def main():
             backup_chat(chat)
             active_role = next_role(chat)
         elif active_role == 'assistant':
+            # Get the content iterator
             chat, num_tokens = trim_chat(chat)
             max_retries = 5
             n_max_retries = 0
@@ -376,6 +369,7 @@ def main():
             complete_response = []
             print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:\n'), end='', flush=True)
 
+            # Process the content
             read_buffer = ''
             speak_subproc = None
             for chunk in response:
@@ -391,31 +385,26 @@ def main():
                     backup_chat(chat, prompt_name=True)
                     raise e
 
-                if not args.sync_speech:
-                    print(c, end='', flush=True)
+                if c is None:
+                    continue
 
-                if speak_subproc is None or speak_subproc.poll() is not None:
-                    for i,chars in enumerate(read_buffer):
-                        if chars in ['.', '?', '!']:
-                            reading_buffer = read_buffer[:i+1]
-                            read_buffer = read_buffer[i+1:]
-                            if args.speak:
-                                speak_subproc = speak(reading_buffer)
-                                if args.sync_speech:
-                                    print(reading_buffer, end='', flush=True)
-                            break
+                print(c, end='', flush=True)
+
+                # if speak_subproc is None or speak_subproc.poll() is not None:
+                for i,chars in enumerate(read_buffer):
+                    if chars in ['.', '?', '!', '。', '？', '！']:
+                        reading_buffer = read_buffer[:i+1]
+                        read_buffer = read_buffer[i+1:]
+                        if args.speak:
+                            speak(reading_buffer)
+                        break
                 
                 if ctrl_c > 0:
                     ctrl_c = 0
                     break
 
             # Speak the remaning buffer
-            while True:
-                if args.speak and (speak_subproc == None or speak_subproc.poll() is not None):
-                    speak_subproc = speak(read_buffer)
-                    if args.sync_speech:
-                        print(read_buffer, end='', flush=True)
-                    break
+            speak(read_buffer)
 
             print()
             complete_response = ''.join(complete_response)
