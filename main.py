@@ -53,6 +53,7 @@ parser.add_argument('--list-all-chats', action='store_true', help='List all chat
 parser.add_argument('--list-models', action='store_true', help='List all models')
 parser.add_argument('--speak', default=speak_default, action='store_true', help='Speak the messages.')
 parser.add_argument('--config', action='store_true', help='Open the config file.')
+parser.add_argument('--debug', action='store_true', help='Run with debug settings. Includes notifications.')
 parser.add_argument('user_input',  type=str, nargs='*', help='Initial input the user gives to the chat bot.')
 args = parser.parse_args()
 if args.user_input == []:
@@ -398,7 +399,7 @@ def main():
                         if args.speak:
                             reading_buffer = re.sub('`', '', reading_buffer)
                             reading_buffer = reading_buffer.strip()
-                            os.system(f"notify-send '{reading_buffer}'")
+                            debug_notify(msg)
                             speak(reading_buffer)
                         break
                 
@@ -413,6 +414,11 @@ def main():
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)
             active_role = next_role(chat)
+
+    
+def debug_notify(msg):
+    if args.debug:
+        os.system(f"notify-send '{msg}'")
 
 if __name__ == "__main__":
     main()
