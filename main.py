@@ -1,4 +1,5 @@
 from glob import glob
+import hashlib
 import re
 import subprocess
 import signal
@@ -58,8 +59,10 @@ parser.add_argument('user_input',  type=str, nargs='*', help='Initial input the 
 args = parser.parse_args()
 if args.user_input == []:
     args.user_input = None
-if args.user_input and " " in args.user_input:
+else:
     args.user_input = " ".join(args.user_input)
+    if args.user_input == "":
+        args.user_input = None
 
 class Command:
     def __init__(self, str_matches, description):
@@ -214,7 +217,44 @@ def speak(reading_buffer):
     if proc.returncode != 0:
         print(f"{cmd} not found")
         return None
+
+    reading_buffer = re.sub('`', '', reading_buffer)
+    # Filter out python interpreter prompt
+    reading_buffer = re.sub('>>> ', '', reading_buffer)
+    # Filter out underscores
+    reading_buffer = re.sub('_', ' ', reading_buffer)
+    reading_buffer = reading_buffer.strip()
+    debug_notify(reading_buffer)
     subprocess.Popen([cmd, reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+
+def speak_first_sentence(text):
+    """Split the text and speak the first sentence, if one exists
+       and then speak it. Return the leftover text.
+    """
+    end_chars = ['.', '?', '!', ':', '。', '？', '！']
+    end_markers = []
+    for c in end_chars:
+        end_markers.append(c + ' ')
+        end_markers.append(c + '\n')
+        end_markers.append(c + '"')
+        end_markers.append(c + "'")
+
+    for i in range(len(text)):
+        if text[i] == '\n' or (len(text) >= 2 and text[i:i+2] in end_markers):
+            target_text = text[:i+1]
+            text = text[i+1:]
+            if args.speak:
+                speak(target_text)
+            break
+    return text
+
+def speak_all_as_sentences(text):
+    hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+    last_hash = None
+    while hash != last_hash:
+        text = speak_first_sentence(text)
+        last_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+    speak(text)
 
 def main():
     if args.list_models:
@@ -334,7 +374,7 @@ def main():
                 print(commands)
                 continue
             elif user_input in commands.speak_last.str_matches:
-                speak(chat[-1]['content'])
+                speak_all_as_sentences(chat[-1]['content'])
                 continue
             append_to_chat(chat, active_role, user_input)
             backup_chat(chat)
@@ -385,36 +425,19 @@ def main():
                 print(c, end='', flush=True)
 
                 # if speak_subproc is None or speak_subproc.poll() is not None:
-                for i in range(len(read_buffer)):
-                    end_chars = ['.', '?', '!', ':', '。', '？', '！']
-                    end_markers = []
-                    for c in end_chars:
-                        end_markers.append(c + ' ')
-                        end_markers.append(c + '\n')
-                        end_markers.append(c + '"')
-                        end_markers.append(c + "'")
-                    if read_buffer[i] == '/n' or (len(read_buffer) >= 2 and read_buffer[i:i+2] in end_markers):
-                        reading_buffer = read_buffer[:i+1]
-                        read_buffer = read_buffer[i+1:]
-                        if args.speak:
-                            reading_buffer = re.sub('`', '', reading_buffer)
-                            reading_buffer = reading_buffer.strip()
-                            debug_notify(msg)
-                            speak(reading_buffer)
-                        break
+                read_buffer = speak_first_sentence(read_buffer)
                 
                 if ctrl_c > 0:
                     ctrl_c = 0
                     break
 
             # Speak the remaning buffer
-            speak(read_buffer)
+            speak_all_as_sentences(read_buffer)
 
             print()
             complete_response = ''.join(complete_response)
             append_to_chat(chat, 'assistant', complete_response)
             active_role = next_role(chat)
-
     
 def debug_notify(msg):
     if args.debug:
