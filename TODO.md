@@ -21,6 +21,7 @@ A trigger is a condition that should trigger the implementation of a specific th
 - Use some GUI instead of CLI, that allows to edit text anywhere.
 
 # Features
+- Make it such that you can write `gpt Some initial prompt here!` such that it works (WIP implementation is there, which does not work yet)
 - Make GPT automatically generate the names for the chats
 - Add templating functionality, i.e. allow to insert pre-written templates into the conversation e.g. to modify GPT's behavior in specific ways.
 - Add functionality to create <branches/threads> during the conversation, mainly to conserve context
