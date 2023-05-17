@@ -16,12 +16,6 @@ import yaml
 import openai
 import termcolor
 
-if sys.platform == 'linux':
-    import readline
-    readline.parse_and_bind("tab: complete")
-    readline.parse_and_bind("set horizontal-scroll-mode On")
-    readline.parse_and_bind("set enable-keypad On")
-
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
 
@@ -217,9 +211,8 @@ def speak(reading_buffer):
     proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     proc.wait()
     if proc.returncode != 0:
-        print(f"No speak command foud from this list: {cmds}")
+        print(f"{cmd} not found")
         return None
-
     subprocess.Popen([cmd, reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 def main():
@@ -391,11 +384,21 @@ def main():
                 print(c, end='', flush=True)
 
                 # if speak_subproc is None or speak_subproc.poll() is not None:
-                for i,chars in enumerate(read_buffer):
-                    if chars in ['.', '?', '!', '。', '？', '！']:
+                for i in range(len(read_buffer)):
+                    end_chars = ['.', '?', '!', ':', '。', '？', '！']
+                    end_markers = []
+                    for c in end_chars:
+                        end_markers.append(c + ' ')
+                        end_markers.append(c + '\n')
+                        end_markers.append(c + '"')
+                        end_markers.append(c + "'")
+                    if read_buffer[i] == '/n' or (len(read_buffer) >= 2 and read_buffer[i:i+2] in end_markers):
                         reading_buffer = read_buffer[:i+1]
                         read_buffer = read_buffer[i+1:]
                         if args.speak:
+                            reading_buffer = re.sub('`', '', reading_buffer)
+                            reading_buffer = reading_buffer.strip()
+                            os.system(f"notify-send '{reading_buffer}'")
                             speak(reading_buffer)
                         break
                 
