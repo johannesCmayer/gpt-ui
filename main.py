@@ -74,7 +74,8 @@ class Command:
 class Commands:
     exit = Command(['exit'], 'Exit the program')
     pass_ = Command(['pass'], 'Pass the turn of the current role?')
-    clear = Command(['clear'], 'Clear the entire chat (including system message)')
+    restart = Command(['restart'], 'Clear the entire chat (excluding system message)')
+    restart_hard = Command(['restart hard'], 'Clear the entire chat (including system message)')
     list = Command(['list', 'ls'], 'List all saved chats')
     list_all = Command(['list all', 'ls all'], 'List all saved chats including hidden backup chats')
     load = Command(['load'], 'Load a chat')
@@ -82,15 +83,13 @@ class Commands:
     edit = Command(['vi', 'vim', 'nvim'], 'Edit the chat')
     regenerate = Command(['regenerate'], 'Regenerate the chat')
     speak = Command(['speak', 's'], 'Speak the messages')
-    speak_en = Command(['speak en', 's en'], 'Speak the messages and set language to english')
-    speak_de = Command(['speak de', 's de'], 'Speak the messages and set language to german')
     speak_last = Command(['speak last', 'sl'], 'Speak the last messages')
     help = Command(['help', 'h'], 'Show this help message')
     def __str__(self) -> str:
-        return '\n'.join([str(x) for x in [Commands.exit, Commands.pass_, Commands.clear, Commands.list, \
+        return '\n'.join([str(x) for x in [Commands.exit, Commands.pass_, Commands.restart, Commands.restart_hard, Commands.list, \
                                             Commands.list_all, Commands.load, Commands.save, Commands.edit, \
-                                            Commands.regenerate, Commands.speak, Commands.speak_en, \
-                                            Commands.speak_de, Commands.speak_last, Commands.help]])
+                                            Commands.regenerate, Commands.speak, Commands.speak_last, \
+                                            Commands.help]])
 
 commands = Commands()
 
@@ -254,6 +253,7 @@ def speak_all_as_sentences(text):
     while hash != last_hash:
         text = speak_first_sentence(text)
         last_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+        hash = hashlib.md5(text.encode('utf-8')).hexdigest()
     speak(text)
 
 def main():
@@ -296,7 +296,7 @@ def main():
         if active_role in ['user', 'system'] :
             ctrl_d = 0
             try:
-                user_input = get_input(color_role(active_role, f'{user}:\n'))
+                user_input = get_input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
             except EOFError as e:
                 print()
                 ctrl_d += 1
@@ -319,11 +319,18 @@ def main():
             elif user_input in commands.pass_.str_matches:
                 active_role = "assistant"
                 continue
-            elif user_input in commands.clear.str_matches:
+            elif user_input in commands.restart.str_matches:
                 backup_chat(chat)
+                chat = GET_DEFAULT_CHAT()
+                print('\n\n')
+                print_chat(chat)
+                active_role = next_role(chat)
+                continue
+            elif user_input in commands.restart_hard.str_matches:
+                backup_chat(chat)
+                print('\n\n')
                 chat = []
                 active_role = next_role(chat)
-                print('\n\n')
                 continue
             elif user_input in commands.list.str_matches:
                 for chars in chat_dir.iterdir():
