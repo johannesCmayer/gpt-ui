@@ -100,6 +100,10 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
+def di_print(s):
+    s = termcolor.colored(s, "red")
+    print(s, end='', flush=True)
+
 def color_role(s, s2=None):
     if "system" in s:
         return termcolor.colored(s2 if s2 else s, "red")
@@ -148,18 +152,23 @@ def trim_chat(chat):
 def backup_chat(chat, name=None, prompt_name=None):
     if len(chat) == 0:
         return
+    # Always backup chat, even if name will be provided
     with chat_backup_file.open("w") as f:
         json.dump(chat, f, indent=4)
     if prompt_name:
         try:
-            name = get_input("Save name: ")
-            with (chat_dir / name).open("w") as f:
+            user_input_name = get_input("Save name: ")
+            with (chat_dir / user_input_name).open("w") as f:
                 json.dump(chat, f, indent=4)
+            return user_input_name
         except EOFError as e:
             pass
     elif name:
         with (chat_dir / name).open("w") as f:
             json.dump(chat, f, indent=4)
+        return name
+    else:
+        return chat_backup_file
 
 def edit_chat(chat, user_input):
     backup_chat(chat)
@@ -224,7 +233,7 @@ def speak(reading_buffer):
     reading_buffer = re.sub('_', ' ', reading_buffer)
     reading_buffer = reading_buffer.strip()
     debug_notify(reading_buffer)
-    subprocess.Popen([cmd, reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+    subprocess.Popen([cmd, "--", reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 def speak_first_sentence(text):
     """Split the text and speak the first sentence, if one exists
@@ -294,27 +303,34 @@ def main():
 
     while True:
         if active_role in ['user', 'system'] :
+            di_print("enter user role")
             ctrl_d = 0
             try:
+                di_print("try to get user input")
                 user_input = get_input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
+                di_print("got user input successfull")
             except EOFError as e:
+                di_print(str(e))
+                di_print("user input error (ctrl+d press is likely)")
                 print()
                 ctrl_d += 1
+            di_print("begin match user input")
             if ctrl_d > 0 or user_input in commands.exit.str_matches:
-                backup_chat(chat)
+                backup_chat_name = backup_chat(chat)
                 while not chat_name or chat_name == '':
                     try:
                         chat_name = get_input('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name in commands.exit.str_matches:
+                        print(f"Chat saved as: {backup_chat_name}")
                         exit(0)
                     if (chat_dir / chat_name).exists() and get_input('Chat already exists. Overwrite? ').lower() != 'y':
                             chat_name = ''
                             continue
                     time.sleep(0.1)
-                with (chat_dir / chat_name).open("w") as f:
-                    json.dump(chat, f, indent=4)
+                chat_save_name = backup_chat(chat, chat_name)
+                print(f"Chat saved as: {chat_save_name}")
                 exit(0)
             elif user_input in commands.pass_.str_matches:
                 active_role = "assistant"
@@ -333,12 +349,12 @@ def main():
                 active_role = next_role(chat)
                 continue
             elif user_input in commands.list.str_matches:
-                for chars in chat_dir.iterdir():
+                for chars in sorted(chat_dir.iterdir()):
                     if not chars.name.startswith('.'):
                         print(f"{chars.name}")
                 continue
             elif user_input in commands.list_all.str_matches:
-                for chars in chat_dir.iterdir():
+                for chars in sorted(chat_dir.iterdir()):
                     print(f"{chars.name}")
                 continue
             elif user_input in commands.load.str_matches:
