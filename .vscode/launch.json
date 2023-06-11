@@ -6,13 +6,13 @@
     "configurations": [
     
         {
-            "name": "Python: Current File",
+            "name": "gpt --load-last-chat",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": "Here is a test input"
+            "args": "--load-last-chat"
         }
     ]
 }

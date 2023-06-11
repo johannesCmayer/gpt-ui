@@ -102,7 +102,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 def di_print(s):
     s = termcolor.colored(s, "red")
-    print(s, end='', flush=True)
+    print(f"<{s}>", end='', flush=True)
 
 def color_role(s, s2=None):
     if "system" in s:
@@ -119,14 +119,6 @@ def next_role(chat):
         return "assistant"
     else:
         return "user"
-
-def get_input(prompt):
-    try:
-        user_input = input(prompt)
-    except KeyboardInterrupt:
-        print("\nKeyboardInterrupt detected")
-        return None
-    return user_input
 
 def print_chat(chat):
     for m in chat:
@@ -157,7 +149,7 @@ def backup_chat(chat, name=None, prompt_name=None):
         json.dump(chat, f, indent=4)
     if prompt_name:
         try:
-            user_input_name = get_input("Save name: ")
+            user_input_name = input("Save name: ")
             with (chat_dir / user_input_name).open("w") as f:
                 json.dump(chat, f, indent=4)
             return user_input_name
@@ -307,7 +299,7 @@ def main():
             ctrl_d = 0
             try:
                 di_print("try to get user input")
-                user_input = get_input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
+                user_input = input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
                 di_print("got user input successfull")
             except EOFError as e:
                 di_print(str(e))
@@ -319,13 +311,13 @@ def main():
                 backup_chat_name = backup_chat(chat)
                 while not chat_name or chat_name == '':
                     try:
-                        chat_name = get_input('Save name: ')
+                        chat_name = input('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name in commands.exit.str_matches:
                         print(f"Chat saved as: {backup_chat_name}")
                         exit(0)
-                    if (chat_dir / chat_name).exists() and get_input('Chat already exists. Overwrite? ').lower() != 'y':
+                    if (chat_dir / chat_name).exists() and input('Chat already exists. Overwrite? ').lower() != 'y':
                             chat_name = ''
                             continue
                     time.sleep(0.1)
@@ -361,7 +353,7 @@ def main():
                 for chars in chat_dir.iterdir():
                     if not chars.name.startswith('.'):
                         print(f"{chars.name}")
-                chat_name = get_input('Name of chat to load: ')
+                chat_name = input('Name of chat to load: ')
                 if chat_name == 'exit':
                     continue
                 with chat_dir.joinpath(chat_name).open() as f:
@@ -372,7 +364,7 @@ def main():
                 continue 
             elif user_input in commands.save.str_matches:
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
-                    chat_name = get_input('Name chat: ').strip()
+                    chat_name = input('Name chat: ').strip()
                     if chat_name == 'exit':
                         continue
                     time.sleep(0.1)
