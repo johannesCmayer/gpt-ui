@@ -6,11 +6,12 @@ import signal
 from pathlib import Path
 import argparse
 import json
+import textwrap
 import time
 import os
 import datetime
-import sys
 from copy import deepcopy
+from contextlib import contextmanager
 
 import tiktoken
 import yaml
@@ -98,7 +99,17 @@ def signal_handler(sig, frame):
     global ctrl_c
     ctrl_c += 1
 
+original_sigint_handler = signal.getsignal(signal.SIGINT)
 signal.signal(signal.SIGINT, signal_handler)
+
+@contextmanager
+def default_sigint_handler():
+    """ Context manager to temporarily restore the default SIGINT handler.
+    """
+    global original_sigint_handler
+    signal.signal(signal.SIGINT, original_sigint_handler)
+    yield
+    signal.signal(signal.SIGINT, signal_handler)
 
 def di_print(s):
     s = termcolor.colored(s, "red")
@@ -257,6 +268,19 @@ def speak_all_as_sentences(text):
         hash = hashlib.md5(text.encode('utf-8')).hexdigest()
     speak(text)
 
+def list_chats(hide_backups=True):
+    for chats in sorted(chat_dir.iterdir()):
+        color = 'green'
+        if hide_backups and chats.name.startswith('.'):
+            continue
+        if chats.name.startswith('.backup'):
+            color = 'magenta'
+        print(termcolor.colored(chats.name, color))
+        with chats.open() as f:
+            chat = json.load(f)
+            print(textwrap.shorten(chat[-1]['content'], width=100))
+        print()
+
 def main():
     if args.list_models:
         print('available models:')
@@ -267,10 +291,11 @@ def main():
     global ctrl_c
     chat_name = args.chat_name
 
-    if args.list_chats or args.list_all_chats:
-        for chars in sorted(chat_dir.iterdir()):
-            if args.list_all_chats or not chars.name.startswith('.'):
-                print(f"{chars.name}")
+    if args.list_chats:
+        list_chats()
+        exit(0)
+    if args.list_all_chats:
+        list_chats(hide_backups=False)
         exit(0)
     elif args.config:
         os.system(f"vi {config_file}")
@@ -297,15 +322,17 @@ def main():
         if active_role in ['user', 'system'] :
             di_print("enter user role")
             ctrl_d = 0
-            try:
-                di_print("try to get user input")
-                user_input = input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
-                di_print("got user input successfull")
-            except EOFError as e:
-                di_print(str(e))
-                di_print("user input error (ctrl+d press is likely)")
-                print()
-                ctrl_d += 1
+            with default_sigint_handler():
+                try:
+                    di_print("try to get user input")
+                    signal.signal(signal.SIGINT, signal.default_int_handler)
+                    user_input = input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
+                    di_print("got user input successfull")
+                except EOFError as e:
+                    di_print(e)
+                    di_print("user input error (ctrl+d press is likely)")
+                    print()
+                    ctrl_d += 1
             di_print("begin match user input")
             if ctrl_d > 0 or user_input in commands.exit.str_matches:
                 backup_chat_name = backup_chat(chat)
@@ -341,13 +368,10 @@ def main():
                 active_role = next_role(chat)
                 continue
             elif user_input in commands.list.str_matches:
-                for chars in sorted(chat_dir.iterdir()):
-                    if not chars.name.startswith('.'):
-                        print(f"{chars.name}")
+                list_chats()
                 continue
             elif user_input in commands.list_all.str_matches:
-                for chars in sorted(chat_dir.iterdir()):
-                    print(f"{chars.name}")
+                list_chats(hide_backups=False)
                 continue
             elif user_input in commands.load.str_matches:
                 for chars in chat_dir.iterdir():
