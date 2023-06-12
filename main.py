@@ -74,6 +74,7 @@ class Command:
     def __str__(self) -> str:
         return f"{'/'.join(self.str_matches)}: {self.description}"
 
+# TODO: Find a better way to get the same functionality, without needing to repeat the command names in __str__
 class Commands:
     exit = Command(['exit'], 'Exit the program')
     pass_ = Command(['pass'], 'Pass the turn of the current role?')
@@ -101,9 +102,9 @@ def signal_handler(sig, frame):
     global ctrl_c
     ctrl_c += 1
 
-original_sigint_handler = signal.getsignal(signal.SIGINT)
-signal.signal(signal.SIGINT, signal_handler)
-
+# TODO: CRUFT: This is not needed anymore, since we use prompt_toolkit (at least it is likely that this can be removed soon)
+# original_sigint_handler = signal.getsignal(signal.SIGINT)
+#
 # @contextmanager
 # def default_sigint_handler():
 #     """ Context manager to temporarily restore the default SIGINT handler.
@@ -113,9 +114,12 @@ signal.signal(signal.SIGINT, signal_handler)
 #     yield
 #     signal.signal(signal.SIGINT, signal_handler)
 
-def di_print(s):
-    s = termcolor.colored(s, "red")
-    print(f"<{s}>", end='', flush=True)
+signal.signal(signal.SIGINT, signal_handler)
+
+# TODO: CRUFT
+# def di_print(s):
+#     s = termcolor.colored(s, "red")
+#     print(f"<{s}>", end='', flush=True)
 
 def color_role(s, s2=None):
     if "system" in s:
