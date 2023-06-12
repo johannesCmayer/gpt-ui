@@ -17,22 +17,22 @@ from contextlib import contextmanager
 import tiktoken
 import yaml
 import openai
-import termcolor
 import prompt_toolkit as pt
+from prompt_toolkit import HTML, PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
 
-assistant_name = 'assistant'
-def GET_DEFAULT_CHAT(): 
-    return deepcopy([
-        {"role": "system", "content": "You are a helpful assistant, that answers every question."},
-    ])
-
 project_dir = Path(__file__).parent.absolute()
 chat_dir = project_dir / "chats"
 chat_backup_file = chat_dir / f".backup_{timestamp()}"
+prompt_history_dir = project_dir / "prompt_history"
 config_file = project_dir / "config.yaml"
+
+chat_dir.mkdir(exist_ok=True)
+prompt_history_dir.mkdir(exist_ok=True)
 
 config = yaml.load(config_file.open(), yaml.FullLoader)
 model = config['model']
@@ -45,10 +45,10 @@ openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoade
 enc = tiktoken.encoding_for_model(model)
 
 parser = argparse.ArgumentParser(usage=
-                                   ("\nPress CTRL+C to stop generating the message.\n"
-                                    "In user role press CTRL+D to exit the chat. You will first be asked to save the chat.\n"
-                                    "Press CTRL+D in the safe dialog to exit the program without saving the chat.\n"
-                                    "Enter 'help' as the user role to see all commands you can enter in the user role."))
+    "Press CTRL+C to stop generating the message. "
+    "In user role press CTRL+D to exit the chat. You will first be asked to save the chat. "
+    "Press CTRL+D in the safe dialog to exit the program without saving the chat. "
+    "Enter 'help' as the user role to see all commands you can enter in the user role.")
 parser.add_argument('--chat-name', type=str, help='Name of the chat')
 parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--load-last-chat', action='store_true', help='Name of the chat to load')
@@ -66,6 +66,12 @@ else:
     args.user_input = " ".join(args.user_input)
     if args.user_input == "":
         args.user_input = None
+
+assistant_name = 'assistant'
+def GET_DEFAULT_CHAT(): 
+    return deepcopy([
+        {"role": "system", "content": "You are a helpful assistant, that answers every question."},
+    ])
 
 class Command:
     def __init__(self, str_matches, description):
@@ -102,6 +108,8 @@ def signal_handler(sig, frame):
     global ctrl_c
     ctrl_c += 1
 
+signal.signal(signal.SIGINT, signal_handler)
+
 # TODO: CRUFT: This is not needed anymore, since we use prompt_toolkit (at least it is likely that this can be removed soon)
 # original_sigint_handler = signal.getsignal(signal.SIGINT)
 #
@@ -114,20 +122,27 @@ def signal_handler(sig, frame):
 #     yield
 #     signal.signal(signal.SIGINT, signal_handler)
 
-signal.signal(signal.SIGINT, signal_handler)
 
 # TODO: CRUFT
 # def di_print(s):
 #     s = termcolor.colored(s, "red")
 #     print(f"<{s}>", end='', flush=True)
 
-def color_role(s, s2=None):
-    if "system" in s:
-        return termcolor.colored(s2 if s2 else s, "red")
-    elif "user" in s:
-        return termcolor.colored(s2 if s2 else s, "green")
+def HTML_color(text, color):
+    return f'<style fg="ansi{color}">{text}</style>'
+
+def HTML_bold(text):
+    return f'<b>{text}</b>'
+
+def color_by_role(role, text=None):
+    ret = None
+    if "system" in role:
+        ret = HTML_color(text if text else role, "blue")
+    elif "user" in role:
+        ret = HTML_color(text if text else role, "green")
     else:
-        return termcolor.colored(s2 if s2 else s, "blue")
+        ret = HTML_color(text if text else role, "red")
+    return HTML_bold(ret)
 
 def next_role(chat):
     if len(chat) == 0:
@@ -139,13 +154,21 @@ def next_role(chat):
 
 def print_chat(chat):
     for m in chat:
-        name = m['model'] if m['role'] == 'assistant' else (m['user'] if m['role'] == 'user' else 'system')
-        print(f"{color_role(m['role'], name)}:\n{m['content']}")
+        name = m['model'] if m['role'] == 'assistant' \
+                          else (m['user'] if m['role'] == 'user' else 'system')
+        name += ':'
+        pt.print_formatted_text(HTML(f"{color_by_role(m['role'], name)}{config['prompt_postfix']}{m['content']}"))
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     date = timestamp()
     chat.append({"role": role, "model": l_model if l_model else model, 'user': l_user if l_user else user, 'date': l_date if l_date else date, "content": content})
     backup_chat(chat)
+
+def number_of_tokens(chat):
+    length = 0
+    for c in chat:
+        length += len(enc.encode(c['content']))
+    return length
 
 def trim_chat(chat):
     num_tokens = len(enc.encode(chat[0]['content']))
@@ -281,13 +304,23 @@ def list_chats(hide_backups=True):
             continue
         if chats.name.startswith('.backup'):
             color = 'magenta'
-        print(termcolor.colored(chats.name, color))
+        pt.print_formatted_text(HTML(HTML_color(chats.name, color)))
         with chats.open() as f:
             chat = json.load(f)
             print(textwrap.shorten(chat[-1]['content'], width=100))
         print()
 
+
+num_tokens = 0
 def main():
+    save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
+    user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
+    global num_tokens
+    def bottom_toolbar():
+        #global num_tokens
+        num_tokens = number_of_tokens(chat)
+        return f'{int(num_tokens/max_tokens*100)}% {num_tokens}/{max_tokens}'
+
     if args.list_models:
         print('available models:')
         for m in sorted(openai.Model.list()['data'], key=lambda x: x['id']): 
@@ -330,27 +363,27 @@ def main():
             ctrl_d = 0
             user_name = user if active_role == "user" else "system"
             try:
-                prompt = color_role(active_role, f'{user_name}:{prompt_postfix}')
-                print(prompt, end='', flush=True)
-                user_input = pt.prompt()
+                prompt = f'{user_name}:{prompt_postfix}'
+                prompt = color_by_role(active_role, prompt)
+                user_input = user_prompt_session.prompt(HTML(prompt), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
             except EOFError as e:
                 ctrl_d += 1
             if ctrl_d > 0 or user_input in commands.exit.str_matches:
                 backup_chat_name = backup_chat(chat)
                 while not chat_name or chat_name == '':
                     try:
-                        chat_name = pt.prompt('Save name: ')
+                        chat_name = save_name_session.prompt('Save name: ', bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name in commands.exit.str_matches:
-                        print(f"Chat saved as: {backup_chat_name}")
+                        pt.print_formatted_text(f"Chat saved as: {backup_chat_name}")
                         exit(0)
-                    if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ').lower() != 'y':
+                    if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ', bottom_toolbar=bottom_toolbar).lower() != 'y':
                             chat_name = ''
                             continue
                     time.sleep(0.1)
                 chat_save_name = backup_chat(chat, chat_name)
-                print(f"Chat saved as: {chat_save_name}")
+                pt.print_formatted_text(f"Chat saved as: {chat_save_name}")
                 exit(0)
             elif user_input in commands.pass_.str_matches:
                 active_role = "assistant"
@@ -358,8 +391,8 @@ def main():
             elif user_input in commands.restart.str_matches:
                 backup_chat(chat)
                 chat = GET_DEFAULT_CHAT()
-                print('\n\n')
-                print_chat(chat)
+                pt.print_formatted_text('\n\n')
+                pt.print_formatted_text(chat)
                 active_role = next_role(chat)
                 continue
             elif user_input in commands.restart_hard.str_matches:
@@ -435,12 +468,12 @@ def main():
                     if try_idx > max_retries:
                         backup_chat(chat)
                         raise {e}
-                    termcolor.cprint(f"Error. Retrying {try_idx}/{max_retries}", 'red')
+                    pt.print_formatted_text(HTML(HTML_color(f"Error. Retrying {try_idx}/{max_retries}", 'red')))
                     if args.debug: 
-                        termcolor.cprint(f"Error: {e}", 'red')
+                        pt.print_formatted_text(HTML(HTML_color(f"Error: {e}", 'red')))
                     time.sleep(1)
             complete_response = []
-            print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:{prompt_postfix}'), end='', flush=True)
+            pt.print_formatted_text(HTML(color_by_role(f'{model}:{prompt_postfix}')), end='', flush=True)
 
             # Process the content
             read_buffer = ''
