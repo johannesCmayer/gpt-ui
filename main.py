@@ -1,5 +1,6 @@
 from glob import glob
 import hashlib
+import itertools
 import re
 import subprocess
 import signal
@@ -17,6 +18,7 @@ import tiktoken
 import yaml
 import openai
 import termcolor
+import prompt_toolkit as pt
 
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
@@ -102,14 +104,14 @@ def signal_handler(sig, frame):
 original_sigint_handler = signal.getsignal(signal.SIGINT)
 signal.signal(signal.SIGINT, signal_handler)
 
-@contextmanager
-def default_sigint_handler():
-    """ Context manager to temporarily restore the default SIGINT handler.
-    """
-    global original_sigint_handler
-    signal.signal(signal.SIGINT, original_sigint_handler)
-    yield
-    signal.signal(signal.SIGINT, signal_handler)
+# @contextmanager
+# def default_sigint_handler():
+#     """ Context manager to temporarily restore the default SIGINT handler.
+#     """
+#     global original_sigint_handler
+#     signal.signal(signal.SIGINT, original_sigint_handler)
+#     yield
+#     signal.signal(signal.SIGINT, signal_handler)
 
 def di_print(s):
     s = termcolor.colored(s, "red")
@@ -160,7 +162,7 @@ def backup_chat(chat, name=None, prompt_name=None):
         json.dump(chat, f, indent=4)
     if prompt_name:
         try:
-            user_input_name = input("Save name: ")
+            user_input_name = pt.prompt("Save name: ")
             with (chat_dir / user_input_name).open("w") as f:
                 json.dump(chat, f, indent=4)
             return user_input_name
@@ -317,34 +319,29 @@ def main():
     print_chat(chat)
 
     active_role = next_role(chat)
+    prompt_postfix = config['prompt_postfix']
 
     while True:
-        if active_role in ['user', 'system'] :
-            di_print("enter user role")
+        if active_role in ['user', 'system']:
             ctrl_d = 0
-            with default_sigint_handler():
-                try:
-                    di_print("try to get user input")
-                    signal.signal(signal.SIGINT, signal.default_int_handler)
-                    user_input = input(color_role(active_role, f'{user if active_role == "user" else "system"}:\n'))
-                    di_print("got user input successfull")
-                except EOFError as e:
-                    di_print(e)
-                    di_print("user input error (ctrl+d press is likely)")
-                    print()
-                    ctrl_d += 1
-            di_print("begin match user input")
+            user_name = user if active_role == "user" else "system"
+            try:
+                prompt = color_role(active_role, f'{user_name}:{prompt_postfix}')
+                print(prompt, end='', flush=True)
+                user_input = pt.prompt()
+            except EOFError as e:
+                ctrl_d += 1
             if ctrl_d > 0 or user_input in commands.exit.str_matches:
                 backup_chat_name = backup_chat(chat)
                 while not chat_name or chat_name == '':
                     try:
-                        chat_name = input('Save name: ')
+                        chat_name = pt.prompt('Save name: ')
                     except EOFError as e:
                         ctrl_d += 1
                     if ctrl_d > 1 or chat_name in commands.exit.str_matches:
                         print(f"Chat saved as: {backup_chat_name}")
                         exit(0)
-                    if (chat_dir / chat_name).exists() and input('Chat already exists. Overwrite? ').lower() != 'y':
+                    if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ').lower() != 'y':
                             chat_name = ''
                             continue
                     time.sleep(0.1)
@@ -377,7 +374,7 @@ def main():
                 for chars in chat_dir.iterdir():
                     if not chars.name.startswith('.'):
                         print(f"{chars.name}")
-                chat_name = input('Name of chat to load: ')
+                chat_name = pt.prompt('Name of chat to load: ')
                 if chat_name == 'exit':
                     continue
                 with chat_dir.joinpath(chat_name).open() as f:
@@ -388,7 +385,7 @@ def main():
                 continue 
             elif user_input in commands.save.str_matches:
                 while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
-                    chat_name = input('Name chat: ').strip()
+                    chat_name = pt.prompt('Name chat: ').strip()
                     if chat_name == 'exit':
                         continue
                     time.sleep(0.1)
@@ -422,8 +419,7 @@ def main():
             # Get the content iterator
             chat, num_tokens = trim_chat(chat)
             max_retries = 5
-            n_max_retries = 0
-            for i in range(max_retries):
+            for try_idx in itertools.count(1):
                 try:
                     response = openai.ChatCompletion.create(
                         model=model,
@@ -432,15 +428,15 @@ def main():
                     )
                     break
                 except Exception as e:
-                    print(f"try {n_max_retries}/{max_retries}")
-                    print(f"Error: {e}")
-                    if n_max_retries >= max_retries:
+                    if try_idx > max_retries:
                         backup_chat(chat)
                         raise {e}
-                    n_max_retries += 1
+                    termcolor.cprint(f"Error. Retrying {try_idx}/{max_retries}", 'red')
+                    if args.debug: 
+                        termcolor.cprint(f"Error: {e}", 'red')
                     time.sleep(1)
             complete_response = []
-            print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:\n'), end='', flush=True)
+            print(color_role(f'{int(num_tokens/max_tokens*100)}% {model}:{prompt_postfix}'), end='', flush=True)
 
             # Process the content
             read_buffer = ''

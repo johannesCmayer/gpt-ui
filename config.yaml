@@ -1,3 +1,4 @@
 speak: true
 model: gpt-4
 user: Johannes
+prompt_postfix: " "
