@@ -3,7 +3,6 @@ import hashlib
 import itertools
 import re
 import subprocess
-import signal
 from pathlib import Path
 import argparse
 import json
@@ -13,6 +12,7 @@ import os
 import datetime
 from copy import deepcopy
 from contextlib import contextmanager
+from typing import List, Optional, Tuple, Union, Any
 
 import tiktoken
 import yaml
@@ -22,6 +22,7 @@ import prompt_toolkit as pt
 from prompt_toolkit import HTML, PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import WordCompleter
 
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
@@ -36,6 +37,8 @@ chat_backup_file = chat_dir / f".backup_{timestamp()}"
 prompt_history_dir = project_dir / "prompt_history"
 
 obsidian_vault_dir = Path(config['obsidian_vault_dir']).expanduser()
+if not obsidian_vault_dir.exists():
+    raise FileNotFoundError(f"Obsidian vault directory {obsidian_vault_dir} does not exist.")
 
 chat_dir.mkdir(exist_ok=True)
 prompt_history_dir.mkdir(exist_ok=True)
@@ -107,31 +110,6 @@ class Commands:
                                             Commands.help]])
 
 commands = Commands()
-
-ctrl_c = 0
-def signal_handler(sig, frame):
-    global ctrl_c
-    ctrl_c += 1
-
-signal.signal(signal.SIGINT, signal_handler)
-
-# TODO: CRUFT: This is not needed anymore, since we use prompt_toolkit (at least it is likely that this can be removed soon)
-# original_sigint_handler = signal.getsignal(signal.SIGINT)
-#
-# @contextmanager
-# def default_sigint_handler():
-#     """ Context manager to temporarily restore the default SIGINT handler.
-#     """
-#     global original_sigint_handler
-#     signal.signal(signal.SIGINT, original_sigint_handler)
-#     yield
-#     signal.signal(signal.SIGINT, signal_handler)
-
-
-# TODO: CRUFT
-# def di_print(s):
-#     s = termcolor.colored(s, "red")
-#     print(f"<{s}>", end='', flush=True)
 
 def HTML_color(text, color):
     return f'<style fg="ansi{color}">{text}</style>'
@@ -323,6 +301,25 @@ def get_file_content_embeding(path):
         text = f.read()
     return f"\n{path}>>>\n{text}\n<<<{path}\n"
 
+def search_file(start_path: Path, target_file: str) -> Optional[List[Path]]:
+    matches = list(start_path.rglob(target_file))  # Search for target file
+    if matches:
+        return matches # Returns list of all matches file paths
+    else:
+        return None
+
+def search_single_file(start_path: Path, target_file: str) -> Path:
+    matches = list(start_path.rglob(target_file))  # Search for target file
+    if matches:
+        if len(matches) == 1:
+            return matches[0] # Returns list of all matches file paths
+        else:
+            completer = WordCompleter([str(x) for x in matches])
+            result = pt.prompt('Please enter your choice:', completer=completer)
+            return Path(result)
+    else:
+        return None
+
 def explode_file_links(chat):
     for c in chat:
           c.update({'content': re.sub(':file:(.*):',
@@ -330,19 +327,25 @@ def explode_file_links(chat):
                  c['content'])})
     return chat
 
+def resolve_obsidian_links(chat):
+    for c in chat:
+          c.update({'content': re.sub(':obsidian:(.*):',
+                 lambda match: f":file:{search_single_file(obsidian_vault_dir, match.group(1))}:",
+                 c['content'])})
+    return chat
+
 def explode_chat(chat):
     chat = deepcopy(chat)
+    chat = resolve_obsidian_links(chat)
     chat = explode_file_links(chat)
     return chat
 
-num_tokens = 0
 def main():
     save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
     user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
-    global num_tokens
     def bottom_toolbar():
         #global num_tokens
-        num_tokens = number_of_tokens(chat)
+        num_tokens = number_of_tokens(explode_chat(chat))
         return f'{int(num_tokens/max_tokens*100)}% {num_tokens}/{max_tokens}'
 
     if args.list_models:
@@ -351,7 +354,6 @@ def main():
             print(m['id'])
         exit(0)
 
-    global ctrl_c
     chat_name = args.chat_name
 
     if args.list_chats:
@@ -383,158 +385,160 @@ def main():
     prompt_postfix = config['prompt_postfix']
 
     while True:
-        if active_role in ['user', 'system']:
-            ctrl_d = 0
-            user_name = user if active_role == "user" else "system"
-            try:
-                prompt = f'{user_name}:{prompt_postfix}'
-                prompt = color_by_role(active_role, prompt)
-                user_input = user_prompt_session.prompt(HTML(prompt), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
-            except EOFError as e:
-                ctrl_d += 1
-            if ctrl_d > 0 or user_input in commands.exit.str_matches:
-                backup_chat_name = backup_chat(chat)
-                while not chat_name or chat_name == '':
-                    try:
-                        chat_name = save_name_session.prompt('Save name: ', bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
-                    except EOFError as e:
-                        ctrl_d += 1
-                    if ctrl_d > 1 or chat_name in commands.exit.str_matches:
-                        pt.print_formatted_text(f"Chat saved as: {backup_chat_name}")
-                        exit(0)
-                    if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ', bottom_toolbar=bottom_toolbar).lower() != 'y':
-                            chat_name = ''
-                            continue
-                    time.sleep(0.1)
-                chat_save_name = backup_chat(chat, chat_name)
-                pt.print_formatted_text(f"Chat saved as: {chat_save_name}")
-                exit(0)
-            elif user_input in commands.pass_.str_matches:
-                active_role = "assistant"
-                continue
-            elif user_input in commands.restart.str_matches:
-                backup_chat(chat)
-                chat = GET_DEFAULT_CHAT()
-                pt.print_formatted_text('\n\n')
-                pt.print_formatted_text(chat)
-                active_role = next_role(chat)
-                continue
-            elif user_input in commands.restart_hard.str_matches:
-                backup_chat(chat)
-                print('\n\n')
-                chat = []
-                active_role = next_role(chat)
-                continue
-            elif user_input in commands.list.str_matches:
-                list_chats()
-                continue
-            elif user_input in commands.list_all.str_matches:
-                list_chats(hide_backups=False)
-                continue
-            elif user_input in commands.load.str_matches:
-                for chars in chat_dir.iterdir():
-                    if not chars.name.startswith('.'):
-                        print(f"{chars.name}")
-                chat_name = pt.prompt('Name of chat to load: ')
-                if chat_name == 'exit':
+        try:
+            if active_role in ['user', 'system']:
+                ctrl_d = 0
+                user_name = user if active_role == "user" else "system"
+                try:
+                    prompt = f'{user_name}:{prompt_postfix}'
+                    prompt = color_by_role(active_role, prompt)
+                    user_input = user_prompt_session.prompt(HTML(prompt), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
+                except EOFError as e:
+                    ctrl_d += 1
+                if ctrl_d > 0 or user_input in commands.exit.str_matches:
+                    backup_chat_name = backup_chat(chat)
+                    while not chat_name or chat_name == '':
+                        try:
+                            chat_name = save_name_session.prompt('Save name: ', bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
+                        except EOFError as e:
+                            ctrl_d += 1
+                        if ctrl_d > 1 or chat_name in commands.exit.str_matches:
+                            pt.print_formatted_text(f"Chat saved as: {backup_chat_name}")
+                            exit(0)
+                        if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ', bottom_toolbar=bottom_toolbar).lower() != 'y':
+                                chat_name = ''
+                                continue
+                        time.sleep(0.1)
+                    chat_save_name = backup_chat(chat, chat_name)
+                    pt.print_formatted_text(f"Chat saved as: {chat_save_name}")
+                    exit(0)
+                elif user_input in commands.pass_.str_matches:
+                    active_role = "assistant"
                     continue
-                with chat_dir.joinpath(chat_name).open() as f:
+                elif user_input in commands.restart.str_matches:
                     backup_chat(chat)
-                    chat = json.load(f)
-                print('\n\n')
-                print_chat(chat)
-                continue 
-            elif user_input in commands.save.str_matches:
-                while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
-                    chat_name = pt.prompt('Name chat: ').strip()
+                    chat = GET_DEFAULT_CHAT()
+                    pt.print_formatted_text('\n\n')
+                    pt.print_formatted_text(chat)
+                    active_role = next_role(chat)
+                    continue
+                elif user_input in commands.restart_hard.str_matches:
+                    backup_chat(chat)
+                    print('\n\n')
+                    chat = []
+                    active_role = next_role(chat)
+                    continue
+                elif user_input in commands.list.str_matches:
+                    list_chats()
+                    continue
+                elif user_input in commands.list_all.str_matches:
+                    list_chats(hide_backups=False)
+                    continue
+                elif user_input in commands.load.str_matches:
+                    for chars in chat_dir.iterdir():
+                        if not chars.name.startswith('.'):
+                            print(f"{chars.name}")
+                    chat_name = pt.prompt('Name of chat to load: ')
                     if chat_name == 'exit':
                         continue
-                    time.sleep(0.1)
-                with (chat_dir / chat_name).open("w") as f:
-                    json.dump(chat, f, indent=4)
-                continue
-            elif user_input in commands.edit.str_matches:
-                chat = edit_chat(chat, user_input)
-                continue
-            elif len(chat) >= 3 and user_input in commands.regenerate.str_matches:
-                backup_chat(chat)
-                chat = chat[:-1]
-                active_role = next_role(active_role)
-                print('\n\n')
-                print_chat(chat)
-                continue
-            elif user_input in commands.speak.str_matches:
-                args.speak = not args.speak
-                print(f"Speak messages: {args.speak}")
-                continue
-            elif user_input in commands.help.str_matches:
-                print(commands)
-                continue
-            elif user_input in commands.speak_last.str_matches:
-                speak_all_as_sentences(chat[-1]['content'])
-                continue
-            append_to_chat(chat, active_role, user_input)
-            backup_chat(chat)
-            active_role = next_role(chat)
-        elif active_role == 'assistant':
-            # Get the content iterator
-            chat, num_tokens = trim_chat(chat)
-            max_retries = 5
-            for try_idx in itertools.count(1):
-                try:
-                    exploded_chat = explode_chat(chat)
-                    response = openai.ChatCompletion.create(
-                        model=model,
-                        messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat],
-                        stream = True,
-                    )
-                    break
-                except TryAgain as e:
-                    if try_idx > max_retries:
+                    with chat_dir.joinpath(chat_name).open() as f:
                         backup_chat(chat)
-                        raise {e}
-                    pt.print_formatted_text(HTML(HTML_color(f"Error. Retrying {try_idx}/{max_retries}", 'red')))
-                    if args.debug: 
-                        pt.print_formatted_text(HTML(HTML_color(f"Error: {e}", 'red')))
-                    time.sleep(1)
-            complete_response = []
-            pt.print_formatted_text(HTML(color_by_role(f'{model}:{prompt_postfix}')), end='', flush=True)
-
-            # Process the content
-            read_buffer = ''
-            speak_subproc = None
-            for chunk in response:
-                c = None
-                try:
-                    c = chunk.choices[0].delta.content
-                    complete_response.append(c)
-                    read_buffer += c
-                except AttributeError as e:
-                    pass
-                except Exception as e:
-                    print("\nAn error occured.")
-                    backup_chat(chat, prompt_name=True)
-                    raise e
-
-                if c is None:
+                        chat = json.load(f)
+                    print('\n\n')
+                    print_chat(chat)
+                    continue 
+                elif user_input in commands.save.str_matches:
+                    while not chat_name or (chat_dir / chat_name).exists() or chat_name == '':
+                        chat_name = pt.prompt('Name chat: ').strip()
+                        if chat_name == 'exit':
+                            continue
+                        time.sleep(0.1)
+                    with (chat_dir / chat_name).open("w") as f:
+                        json.dump(chat, f, indent=4)
                     continue
+                elif user_input in commands.edit.str_matches:
+                    chat = edit_chat(chat, user_input)
+                    continue
+                elif len(chat) >= 3 and user_input in commands.regenerate.str_matches:
+                    backup_chat(chat)
+                    chat = chat[:-1]
+                    active_role = next_role(active_role)
+                    print('\n\n')
+                    print_chat(chat)
+                    continue
+                elif user_input in commands.speak.str_matches:
+                    args.speak = not args.speak
+                    print(f"Speak messages: {args.speak}")
+                    continue
+                elif user_input in commands.help.str_matches:
+                    print(commands)
+                    continue
+                elif user_input in commands.speak_last.str_matches:
+                    speak_all_as_sentences(chat[-1]['content'])
+                    continue
+                append_to_chat(chat, active_role, user_input)
+                backup_chat(chat)
+                active_role = next_role(chat)
+            elif active_role == 'assistant':
+                # Get the content iterator
+                chat, num_tokens = trim_chat(chat)
+                max_retries = 5
+                for try_idx in itertools.count(1):
+                    try:
+                        exploded_chat = explode_chat(chat)
+                        response = openai.ChatCompletion.create(
+                            model=model,
+                            messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat],
+                            stream = True,
+                        )
+                        break
+                    except TryAgain as e:
+                        if try_idx > max_retries:
+                            backup_chat(chat)
+                            raise {e}
+                        pt.print_formatted_text(HTML(HTML_color(f"Error. Retrying {try_idx}/{max_retries}", 'red')))
+                        if args.debug: 
+                            pt.print_formatted_text(HTML(HTML_color(f"Error: {e}", 'red')))
+                        time.sleep(1)
+                complete_response = []
+                pt.print_formatted_text(HTML(color_by_role(f'{model}:{prompt_postfix}')), end='', flush=True)
 
-                print(c, end='', flush=True)
+                # Process the content
+                read_buffer = ''
+                speak_subproc = None
+                try:
+                    for chunk in response:
+                        c = None
+                        try:
+                            c = chunk.choices[0].delta.content
+                            complete_response.append(c)
+                            read_buffer += c
+                        except AttributeError as e:
+                            pass
+                        except Exception as e:
+                            print("\nAn error occured.")
+                            backup_chat(chat, prompt_name=True)
+                            raise e
 
-                # if speak_subproc is None or speak_subproc.poll() is not None:
-                read_buffer = speak_first_sentence(read_buffer)
-                
-                if ctrl_c > 0:
-                    ctrl_c = 0
-                    break
+                        if c is None:
+                            continue
 
-            # Speak the remaning buffer
-            speak_all_as_sentences(read_buffer)
+                        print(c, end='', flush=True)
 
-            print()
-            complete_response = ''.join(complete_response)
-            append_to_chat(chat, 'assistant', complete_response)
-            active_role = next_role(chat)
+                        # if speak_subproc is None or speak_subproc.poll() is not None:
+                        read_buffer = speak_first_sentence(read_buffer)
+                except KeyboardInterrupt as e:
+                    pass
+
+                # Speak the remaning buffer
+                speak_all_as_sentences(read_buffer)
+
+                print()
+                complete_response = ''.join(complete_response)
+                append_to_chat(chat, 'assistant', complete_response)
+                active_role = next_role(chat)
+        except KeyboardInterrupt:
+            pass
     
 def debug_notify(msg):
     if args.debug:
