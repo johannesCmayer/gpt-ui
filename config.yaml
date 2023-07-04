@@ -2,3 +2,4 @@ speak: true
 model: gpt-4
 user: Johannes
 prompt_postfix: " "
+obsidian_vault_dir: ~/writing/obsidian/main

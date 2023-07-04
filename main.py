@@ -17,6 +17,7 @@ from contextlib import contextmanager
 import tiktoken
 import yaml
 import openai
+from openai.error import TryAgain
 import prompt_toolkit as pt
 from prompt_toolkit import HTML, PromptSession
 from prompt_toolkit.history import FileHistory
@@ -26,15 +27,19 @@ def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
 
 project_dir = Path(__file__).parent.absolute()
+
+config_file = project_dir / "config.yaml"
+config = yaml.load(config_file.open(), yaml.FullLoader)
+
 chat_dir = project_dir / "chats"
 chat_backup_file = chat_dir / f".backup_{timestamp()}"
 prompt_history_dir = project_dir / "prompt_history"
-config_file = project_dir / "config.yaml"
+
+obsidian_vault_dir = Path(config['obsidian_vault_dir']).expanduser()
 
 chat_dir.mkdir(exist_ok=True)
 prompt_history_dir.mkdir(exist_ok=True)
 
-config = yaml.load(config_file.open(), yaml.FullLoader)
 model = config['model']
 user = config['user']
 max_tokens_dict = { 'gpt-4': 8192 }
@@ -157,7 +162,8 @@ def print_chat(chat):
         name = m['model'] if m['role'] == 'assistant' \
                           else (m['user'] if m['role'] == 'user' else 'system')
         name += ':'
-        pt.print_formatted_text(HTML(f"{color_by_role(m['role'], name)}{config['prompt_postfix']}{m['content']}"))
+        pt.print_formatted_text(HTML(f"{color_by_role(m['role'], name)}{config['prompt_postfix']}"))
+        pt.print_formatted_text(f"{m['content']}")
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
     date = timestamp()
@@ -310,6 +316,24 @@ def list_chats(hide_backups=True):
             print(textwrap.shorten(chat[-1]['content'], width=100))
         print()
 
+def get_file_content_embeding(path):
+    if not path.exists():
+        return f"Error: The file {path} does not exist. Tell this to the user very briefly, telling them the path that does not exsist, ignoring the rest of the prompt."
+    with path.open() as f:
+        text = f.read()
+    return f"\n{path}>>>\n{text}\n<<<{path}\n"
+
+def explode_file_links(chat):
+    for c in chat:
+          c.update({'content': re.sub(':file:(.*):',
+                 lambda match: get_file_content_embeding(Path(match.group(1))), 
+                 c['content'])})
+    return chat
+
+def explode_chat(chat):
+    chat = deepcopy(chat)
+    chat = explode_file_links(chat)
+    return chat
 
 num_tokens = 0
 def main():
@@ -458,13 +482,14 @@ def main():
             max_retries = 5
             for try_idx in itertools.count(1):
                 try:
+                    exploded_chat = explode_chat(chat)
                     response = openai.ChatCompletion.create(
                         model=model,
-                        messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in chat],
+                        messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat],
                         stream = True,
                     )
                     break
-                except Exception as e:
+                except TryAgain as e:
                     if try_idx > max_retries:
                         backup_chat(chat)
                         raise {e}

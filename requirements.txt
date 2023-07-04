@@ -1,4 +1,4 @@
 tiktoken
 pyyaml
 openai
-termcolor
+prompt_toolkit
