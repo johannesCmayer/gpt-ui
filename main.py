@@ -11,7 +11,6 @@ import time
 import os
 import datetime
 from copy import deepcopy
-from contextlib import contextmanager
 from typing import List, Optional, Tuple, Union, Any
 
 import tiktoken
@@ -24,24 +23,26 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
 
+# Basic helper functions
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
 
+# Setting up Paths and looading config 1/2
 project_dir = Path(__file__).parent.absolute()
 
 config_file = project_dir / "config.yaml"
-config = yaml.load(config_file.open(), yaml.FullLoader)
 
 chat_dir = project_dir / "chats"
 chat_backup_file = chat_dir / f".backup_{timestamp()}"
 prompt_history_dir = project_dir / "prompt_history"
-
-obsidian_vault_dir = Path(config['obsidian_vault_dir']).expanduser()
-if not obsidian_vault_dir.exists():
-    raise FileNotFoundError(f"Obsidian vault directory {obsidian_vault_dir} does not exist.")
+prompt_dir = project_dir / 'prompts'
 
 chat_dir.mkdir(exist_ok=True)
 prompt_history_dir.mkdir(exist_ok=True)
+
+# Loading config
+config = yaml.load(config_file.open(), yaml.FullLoader)
+openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 
 model = config['model']
 user = config['user']
@@ -49,9 +50,14 @@ max_tokens_dict = { 'gpt-4': 8192 }
 max_tokens = max_tokens_dict[model]
 speak_default = config['speak']
 
-openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
+# Setting up paths 2/2
+obsidian_vault_dir = Path(config['obsidian_vault_dir']).expanduser()
+if not obsidian_vault_dir.exists():
+    raise FileNotFoundError(f"Obsidian vault directory {obsidian_vault_dir} does not exist.")
+
 enc = tiktoken.encoding_for_model(model)
 
+# Parsing Arguments
 parser = argparse.ArgumentParser(usage=
     "Press CTRL+C to stop generating the message. "
     "In user role press CTRL+D to exit the chat. You will first be asked to save the chat. "
@@ -64,6 +70,7 @@ parser.add_argument('--list-chats', action='store_true', help='List all chats')
 parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
 parser.add_argument('--list-models', action='store_true', help='List all models')
 parser.add_argument('--speak', default=speak_default, action='store_true', help='Speak the messages.')
+parser.add_argument('-p', '--personality', default='helpful_assistant', type=str, choices=[x.stem for x in prompt_dir.iterdir()], help='Set the system prompt based on predefined file.')
 parser.add_argument('--config', action='store_true', help='Open the config file.')
 parser.add_argument('--debug', action='store_true', help='Run with debug settings. Includes notifications.')
 parser.add_argument('user_input',  type=str, nargs='*', help='Initial input the user gives to the chat bot.')
@@ -77,9 +84,14 @@ else:
 
 assistant_name = 'assistant'
 def GET_DEFAULT_CHAT(): 
-    return deepcopy([
-        {"role": "system", "content": "You are a helpful assistant, that answers every question."},
-    ])
+    prompt_path = prompt_dir / (args.personality + ".yaml")
+    if not prompt_path.exists():
+        print(f"Prompt file {prompt_path} does not exist.")
+        print("The foolowing prompt files are available:")
+        for prompt_file in (project_dir / 'prompts').iterdir():
+            print(prompt_file.stem)
+        exit(0)
+    return yaml.load(prompt_path.open(), yaml.FullLoader)
 
 class Command:
     def __init__(self, str_matches, description):
@@ -346,7 +358,7 @@ def main():
     def bottom_toolbar():
         #global num_tokens
         num_tokens = number_of_tokens(explode_chat(chat))
-        return f'{int(num_tokens/max_tokens*100)}% {num_tokens}/{max_tokens}'
+        return f'{int(num_tokens/max_tokens*100)}% {num_tokens}/{max_tokens} | p: {args.personality}'
 
     if args.list_models:
         print('available models:')
