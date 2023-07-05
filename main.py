@@ -58,11 +58,17 @@ if not obsidian_vault_dir.exists():
 enc = tiktoken.encoding_for_model(model)
 
 # Parsing Arguments
-parser = argparse.ArgumentParser(usage=
+parser = argparse.ArgumentParser(description=
     "Press CTRL+C to stop generating the message. "
     "In user role press CTRL+D to exit the chat. You will first be asked to save the chat. "
     "Press CTRL+D in the safe dialog to exit the program without saving the chat. "
-    "Enter 'help' as the user role to see all commands you can enter in the user role.")
+    "\n\n"
+    "During a chat session there are a number of runtime commands you can enter as the user role. Enter 'help' as the "
+    "user role to see all available runtime commands."
+    "\n\n"
+    "You can use :file:FILENAME: to show the contents of FILENAME to GPT, while in the UI the text will "
+    "not be expanded. Similarly you can use :obsidian:FILENAME: in order to search the obsidian vault "
+    "(needs to be configured in config.yaml) for the file FILENAME and show the contents to GPT.")
 parser.add_argument('--chat-name', type=str, help='Name of the chat')
 parser.add_argument('--load-chat', type=str, help='Name of the chat to load')
 parser.add_argument('--load-last-chat', action='store_true', help='Name of the chat to load')
