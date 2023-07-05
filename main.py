@@ -12,6 +12,7 @@ import os
 import datetime
 from copy import deepcopy
 from typing import List, Optional, Tuple, Union, Any
+import html
 
 import tiktoken
 import yaml
@@ -301,12 +302,14 @@ def speak_all_as_sentences(text):
 
 def list_chats(hide_backups=True):
     for chats in sorted(chat_dir.iterdir()):
+        if chats.is_dir():
+            continue
         color = 'green'
         if hide_backups and chats.name.startswith('.'):
             continue
         if chats.name.startswith('.backup'):
             color = 'magenta'
-        pt.print_formatted_text(HTML(HTML_color(chats.name, color)))
+        pt.print_formatted_text(HTML(HTML_color(html.escape(chats.name), color)))
         with chats.open() as f:
             chat = json.load(f)
             print(textwrap.shorten(chat[-1]['content'], width=100))
