@@ -348,10 +348,18 @@ def explode_file_links(chat):
                  c['content'])})
     return chat
 
+def ensure_extension(string: str, ext: str) -> str:
+    """Ensure that the text ends with a particular extension."""
+    if string.endswith(ext):
+        return string
+    else:
+        return f"{string}{ext}"
+
+
 def resolve_obsidian_links(chat):
     for c in chat:
           c.update({'content': re.sub(':obsidian:(.*):',
-                 lambda match: f":file:{search_single_file(obsidian_vault_dir, match.group(1))}:",
+                 lambda match: f":file:{search_single_file(obsidian_vault_dir, ensure_extension(match.group(1), '.md'))}:",
                  c['content'])})
     return chat
 
