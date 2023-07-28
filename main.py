@@ -369,13 +369,47 @@ def explode_chat(chat):
     chat = explode_file_links(chat)
     return chat
 
+def get_summary(chat):
+    try:
+        exploded_chat = explode_chat(chat)
+        summarize_instuctions = (
+            'Please give a summary of the conversation so far in 5 words or less. You do not need to make a complete sentence. '
+            'Be as brief and descriptive as possible. Ideally do not leave out any topics discussed. If there are too many '
+            'topics (and only then) it is ok to write a longer than 5 words summary, but still keep it as brief as possible.')
+        summary_response = openai.ChatCompletion.create(
+            model=model,
+            messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat] + [{'role': 'user', 'content': summarize_instuctions}],
+        )
+        summary = summary_response["choices"][0].message["content"]
+    # TODO make this exception more specific
+    except Exception as e:
+        summary = ''
+        print('Error: ', e)
+    return summary
+
+class toolbar:
+    def __init__(self):
+        self.n_tokens = 0
+        self.summary = ''
+
+    def __str__(self):
+        return f'{int(self.n_tokens/max_tokens*100)}% {self.n_tokens}/{max_tokens} | {args.personality} | {self.summary}'
+
+    def update_num_tokens(self, chat):
+        self.n_tokens = number_of_tokens(explode_chat(chat))
+
+    def update_summary(self, chat):
+        self.summary = get_summary(chat)
+
+bottom_toolbar_session = toolbar()
+
 def main():
     save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
     user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
     def bottom_toolbar():
         #global num_tokens
-        num_tokens = number_of_tokens(explode_chat(chat))
-        return f'{int(num_tokens/max_tokens*100)}% {num_tokens}/{max_tokens} | p: {args.personality}'
+        global bottom_toolbar_session
+        return str(bottom_toolbar_session)
 
     if args.list_models:
         print('available models:')
@@ -427,11 +461,14 @@ def main():
                 if ctrl_d > 0 or user_input in commands.exit.str_matches:
                     backup_chat_name = backup_chat(chat)
                     while not chat_name or chat_name == '':
+                        abort = False
                         try:
-                            chat_name = save_name_session.prompt('Save name: ', bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
+                            chat_name = save_name_session.prompt('Save name: ', default=get_summary(chat), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
                         except EOFError as e:
                             ctrl_d += 1
-                        if ctrl_d > 1 or chat_name in commands.exit.str_matches:
+                        except KeyboardInterrupt as e:
+                            abort = True
+                        if abort or ctrl_d > 1 or chat_name in commands.exit.str_matches:
                             pt.print_formatted_text(f"Chat saved as: {backup_chat_name}")
                             exit(0)
                         if (chat_dir / chat_name).exists() and pt.prompt('Chat already exists. Overwrite? ', bottom_toolbar=bottom_toolbar).lower() != 'y':
@@ -565,6 +602,8 @@ def main():
                 print()
                 complete_response = ''.join(complete_response)
                 append_to_chat(chat, 'assistant', complete_response)
+                bottom_toolbar_session.update_num_tokens(chat)
+                bottom_toolbar_session.update_summary(chat)
                 active_role = next_role(chat)
         except KeyboardInterrupt:
             pass
