@@ -32,17 +32,13 @@ def timestamp():
 project_dir = Path(__file__).parent.absolute()
 
 config_file = project_dir / "config.yaml"
-
-chat_dir = project_dir / "chats"
-chat_backup_file = chat_dir / f".backup_{timestamp()}"
-prompt_history_dir = project_dir / "prompt_history"
-prompt_dir = project_dir / 'prompts'
-
-chat_dir.mkdir(exist_ok=True)
-prompt_history_dir.mkdir(exist_ok=True)
+config_file_local = project_dir / "config_local.yaml"
 
 # Loading config
 config = yaml.load(config_file.open(), yaml.FullLoader)
+# Load local config file and overwrite default config
+if config_file_local.exists():
+    config.update(yaml.load(config_file_local.open(), yaml.FullLoader))
 openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 
 model = config['model']
@@ -52,6 +48,17 @@ max_tokens = max_tokens_dict[model]
 speak_default = config['speak']
 
 # Setting up paths 2/2
+if config["chat_dir"] is not None:
+    chat_dir = Path(config["chat_dir"]).expanduser()
+else:
+    chat_dir = project_dir / "chats"
+chat_backup_file = chat_dir / f".backup_{timestamp()}"
+prompt_history_dir = project_dir / "prompt_history"
+prompt_dir = project_dir / 'prompts'
+
+chat_dir.mkdir(exist_ok=True)
+prompt_history_dir.mkdir(exist_ok=True)
+
 obsidian_vault_dir = Path(config['obsidian_vault_dir']).expanduser()
 if not obsidian_vault_dir.exists():
     raise FileNotFoundError(f"Obsidian vault directory {obsidian_vault_dir} does not exist.")
@@ -375,7 +382,8 @@ def get_summary(chat):
         summarize_instuctions = (
             'Please give a summary of the conversation so far in 5 words or less. You do not need to make a complete sentence. '
             'Be as brief and descriptive as possible. Ideally do not leave out any topics discussed. If there are too many '
-            'topics (and only then) it is ok to write a longer than 5 words summary, but still keep it as brief as possible.')
+            'topics (and only then) it is ok to write a longer than 5 words summary, but still keep it as brief as possible. '
+            'Do not use the following characters in your output: ":", "!", "?", "/", "\\"')
         summary_response = openai.ChatCompletion.create(
             model=model,
             messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat] + [{'role': 'user', 'content': summarize_instuctions}],
