@@ -1,6 +1,8 @@
 from glob import glob
 import hashlib
 import itertools
+import math
+import platform
 import re
 import subprocess
 from pathlib import Path
@@ -13,6 +15,8 @@ import datetime
 from copy import deepcopy
 from typing import List, Optional, Tuple, Union, Any
 import html
+from threading import Thread
+from queue import Queue
 
 import tiktoken
 import yaml
@@ -50,11 +54,22 @@ speak_default = config['speak']
 # Setting up paths 2/2
 if config["chat_dir"] is not None:
     chat_dir = Path(config["chat_dir"]).expanduser()
+    if not chat_dir.exists():
+        raise FileNotFoundError(f"Chat directory {chat_dir} does not exist.")
 else:
     chat_dir = project_dir / "chats"
+    chat_dir.mkdir(exist_ok=True)
+
 chat_backup_file = chat_dir / f".backup_{timestamp()}"
+
 prompt_history_dir = project_dir / "prompt_history"
+prompt_history_dir.mkdir(exist_ok=True)
+
 prompt_dir = project_dir / 'prompts'
+prompt_dir.mkdir(exist_ok=True)
+
+voice_precache_dir = project_dir / 'voice_precache'
+voice_precache_dir.mkdir(exist_ok=True)
 
 chat_dir.mkdir(exist_ok=True)
 prompt_history_dir.mkdir(exist_ok=True)
@@ -260,52 +275,14 @@ def edit_chat(chat, user_input):
     print_chat(chat)
     return chat
 
-def speak(reading_buffer):
-    cmd = 'gsay'
-    proc = subprocess.Popen(['which', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    proc.wait()
-    if proc.returncode != 0:
-        print(f"{cmd} not found")
-        return None
-
-    reading_buffer = re.sub('`', '', reading_buffer)
-    # Filter out python interpreter prompt
-    reading_buffer = re.sub('>>> ', '', reading_buffer)
-    # Filter out underscores
-    reading_buffer = re.sub('_', ' ', reading_buffer)
-    reading_buffer = reading_buffer.strip()
-    debug_notify(reading_buffer)
-    subprocess.Popen([cmd, "--", reading_buffer], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-
-def speak_first_sentence(text):
-    """Split the text and speak the first sentence, if one exists
-       and then speak it. Return the leftover text.
-    """
-    end_chars = ['.', '?', '!', ':', '。', '？', '！']
-    end_markers = []
-    for c in end_chars:
-        end_markers.append(c + ' ')
-        end_markers.append(c + '\n')
-        end_markers.append(c + '"')
-        end_markers.append(c + "'")
-
-    for i in range(len(text)):
-        if text[i] == '\n' or (len(text) >= 2 and text[i:i+2] in end_markers):
-            target_text = text[:i+1]
-            text = text[i+1:]
-            if args.speak:
-                speak(target_text)
-            break
-    return text
-
-def speak_all_as_sentences(text):
-    hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-    last_hash = None
-    while hash != last_hash:
-        text = speak_first_sentence(text)
-        last_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-        hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-    speak(text)
+# def speak_all_as_sentences(text):
+#     hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+#     last_hash = None
+#     while hash != last_hash:
+#         text = speak_first_sentence(text)
+#         last_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+#         hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+#     speak(text)
 
 def list_chats(hide_backups=True):
     for chats in sorted(chat_dir.iterdir()):
@@ -383,7 +360,7 @@ def get_summary(chat):
             'Please give a summary of the conversation so far in 5 words or less. You do not need to make a complete sentence. '
             'Be as brief and descriptive as possible. Ideally do not leave out any topics discussed. If there are too many '
             'topics (and only then) it is ok to write a longer than 5 words summary, but still keep it as brief as possible. '
-            'Do not use the following characters in your output: ":", "!", "?", "/", "\\"')
+            'Do not use the following characters in your output: "*", ":", "!", "?", "/", "\\"')
         summary_response = openai.ChatCompletion.create(
             model=model,
             messages=[{k: v for k, v in y.items() if k in ['role', 'content']} for y in exploded_chat] + [{'role': 'user', 'content': summarize_instuctions}],
@@ -399,24 +376,121 @@ class toolbar:
     def __init__(self):
         self.n_tokens = 0
         self.summary = ''
+        self.worker = None
 
     def __str__(self):
         return f'{int(self.n_tokens/max_tokens*100)}% {self.n_tokens}/{max_tokens} | {args.personality} | {self.summary}'
 
-    def update_num_tokens(self, chat):
+    def background_update(self, chat):
+        if self.worker is None or not self.worker.is_alive():
+            t = Thread(target=self._update, args=[chat])
+            self.worker = t
+            t.start()
+
+    def _update(self, chat):
+        self._update_num_tokens(chat)
+        self._update_summary(chat)
+
+    def _update_num_tokens(self, chat):
         self.n_tokens = number_of_tokens(explode_chat(chat))
 
-    def update_summary(self, chat):
+    def _update_summary(self, chat):
         self.summary = get_summary(chat)
 
 bottom_toolbar_session = toolbar()
 
+class Speaker:
+    def __init__(self):
+        self.arg_queue = []
+        self.queue_processor = None
+        self.stop_flag = False
+        self.speak_subprocess = None
+
+    def stop(self):
+        self.stop_flag = True
+        if self.speak_subprocess is not None:
+            self.speak_subprocess.kill()
+        self.arg_queue = []
+
+    def speak(self, cmd, text) -> None:
+        text = self._prepare_text(text)
+        text = text.strip()
+        if text == "":
+            return
+        speak_touple = self._precompute_speech(cmd, text)
+        self.arg_queue.append(speak_touple)
+        if self.queue_processor is None or not self.queue_processor.is_alive():
+            tp = Thread(target=self._process_queue)
+            self.queue_processor = tp
+            tp.start()
+
+    def _process_queue(self):
+        while len(self.arg_queue) > 0 and not self.stop_flag:
+            t = Thread(target=self._speak)
+            t.start()
+            t.join()
+
+    def _precompute_speech(self, cmd, text) -> Tuple[subprocess.Popen, Path]:
+        if cmd == "say" and platform.system() == "Darwin":
+            extension = ".aiff"
+        else:
+            extension = ".mp3"
+        cache_file = voice_precache_dir / f"{timestamp()}{extension}"
+        debug_notify(text)
+        proc = subprocess.Popen([cmd, "--output-file", cache_file, "--speed", str(1), "--", text], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        return proc, Path(cache_file), text
+
+    def _prepare_text(self, reading_buffer):
+        reading_buffer = re.sub('`', '', reading_buffer)
+        reading_buffer = re.sub('"', '', reading_buffer)
+        # Filter out python interpreter prompt
+        reading_buffer = re.sub('>>> ', '', reading_buffer)
+        # Filter out underscores
+        reading_buffer = re.sub('_', ' ', reading_buffer)
+        reading_buffer = reading_buffer.strip()
+        return reading_buffer
+
+    def _speak(self):
+        proc, cache_file, text = self.arg_queue.pop(0)
+        proc.wait()
+        mpv_speed = 1.5 #min(sum([len(s[2]) for s in self.arg_queue]) * 0.0001  + 1, 1.1)
+        if cache_file.exists():
+            self.speak_subprocess = subprocess.Popen(["mpv", "--really-quiet", f"--speed={mpv_speed}", cache_file], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            self.speak_subprocess.wait()
+            cache_file.unlink()
+
+
+def get_first_sentence(text: str) -> Tuple[str, str]:
+    """Split the first sentence out of a text blob.
+       @return: Rutrns a touple of (first sentence, rest of text)
+    """
+    end_chars = ['.', '?', '!', ':', '。', '？', '！']
+    end_markers = []
+    for c in end_chars:
+        end_markers.append(c + ' ')
+        end_markers.append(c + '\n')
+        end_markers.append(c + '"')
+        end_markers.append(c + "'")
+
+    first_sentence = ''
+    remaining_text = text
+    for i in range(len(text)):
+        if text[i] == '\n' or (len(text) >= 2 and text[i:i+2] in end_markers):
+            first_sentence = text[:i+1]
+            remaining_text = text[i+1:]
+            break
+    return first_sentence, remaining_text
+
+
 def main():
+    speak_cmd = 'gsay'
+    # if platform.system() == 'Darwin':
+    #     speak_cmd = 'say'
+    # else:
+    #     speak_cmd = 'gsay'
     save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
     user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
     def bottom_toolbar():
-        #global num_tokens
-        global bottom_toolbar_session
         return str(bottom_toolbar_session)
 
     if args.list_models:
@@ -548,7 +622,7 @@ def main():
                     print(commands)
                     continue
                 elif user_input in commands.speak_last.str_matches:
-                    speak_all_as_sentences(chat[-1]['content'])
+                    Speaker().speak(speak_cmd, chat[-1]['content'])
                     continue
                 append_to_chat(chat, active_role, user_input)
                 backup_chat(chat)
@@ -569,17 +643,17 @@ def main():
                     except TryAgain as e:
                         if try_idx > max_retries:
                             backup_chat(chat)
-                            raise {e}
+                            raise e
                         pt.print_formatted_text(HTML(HTML_color(f"Error. Retrying {try_idx}/{max_retries}", 'red')))
-                        if args.debug: 
+                        if args.debug:
                             pt.print_formatted_text(HTML(HTML_color(f"Error: {e}", 'red')))
                         time.sleep(1)
                 complete_response = []
                 pt.print_formatted_text(HTML(color_by_role(f'{model}:{prompt_postfix}')), end='', flush=True)
 
                 # Process the content
+                speaker = Speaker()
                 read_buffer = ''
-                speak_subproc = None
                 try:
                     for chunk in response:
                         c = None
@@ -600,21 +674,22 @@ def main():
                         print(c, end='', flush=True)
 
                         # if speak_subproc is None or speak_subproc.poll() is not None:
-                        read_buffer = speak_first_sentence(read_buffer)
+                        first_sentence, read_buffer = get_first_sentence(read_buffer)
+                        if first_sentence != '':
+                            speaker.speak(speak_cmd, first_sentence)
                 except KeyboardInterrupt as e:
-                    pass
+                    speaker.stop()
 
                 # Speak the remaning buffer
-                speak_all_as_sentences(read_buffer)
-
-                print()
+                speaker.speak(speak_cmd, read_buffer)
                 complete_response = ''.join(complete_response)
                 append_to_chat(chat, 'assistant', complete_response)
-                bottom_toolbar_session.update_num_tokens(chat)
-                bottom_toolbar_session.update_summary(chat)
                 active_role = next_role(chat)
+                print()
         except KeyboardInterrupt:
-            pass
+            speaker.stop()
+
+        bottom_toolbar_session.background_update(chat)
     
 def debug_notify(msg):
     if args.debug:
