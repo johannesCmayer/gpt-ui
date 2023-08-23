@@ -47,6 +47,7 @@ openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoade
 
 model = config['default_model']
 user = config['user']
+models_dict = yaml.load((project_dir / 'models_metadata.yaml').open(), yaml.FullLoader)
 max_tokens_dict = { 
     'gpt-4': 8192,
     'gpt-3.5-turbo': 4096,
@@ -457,7 +458,7 @@ class Speaker:
     def _speak(self):
         proc, cache_file, text = self.arg_queue.pop(0)
         proc.wait()
-        mpv_speed = 1.5 #min(sum([len(s[2]) for s in self.arg_queue]) * 0.0001  + 1, 1.1)
+        mpv_speed = 1.4 #min(sum([len(s[2]) for s in self.arg_queue]) * 0.0001  + 1, 1.1)
         if cache_file.exists():
             self.speak_subprocess = subprocess.Popen(["mpv", "--really-quiet", f"--speed={mpv_speed}", cache_file], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
             self.speak_subprocess.wait()
@@ -633,6 +634,19 @@ def main():
                 elif user_input in commands.speak_last.str_matches:
                     Speaker().speak(speak_cmd, chat[-1]['content'])
                     continue
+
+                # Check if the user input starts with a model identifier, and if so,
+                # set the model appropriately
+                for n_model in models_dict.values():
+                    for name in [n_model['name']] + n_model['aliases']:
+                        if user_input.startswith(name):
+                            global model
+                            global max_tokens
+                            model = n_model['name']
+                            max_tokens = n_model['max_tokens']
+                            user_input = user_input[len(name):].strip()
+                        continue
+
                 append_to_chat(chat, active_role, user_input)
                 backup_chat(chat)
                 active_role = next_role(chat)
