@@ -47,7 +47,10 @@ openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoade
 
 model = config['model']
 user = config['user']
-max_tokens_dict = { 'gpt-4': 8192 }
+max_tokens_dict = { 
+    'gpt-4': 8192,
+    'gpt-3.5-turbo': 4096,
+    'gpt-3.5-turbo-16k': 16384 }
 max_tokens = max_tokens_dict[model]
 speak_default = config['speak']
 
@@ -98,6 +101,7 @@ parser.add_argument('--load-last-chat', action='store_true', help='Name of the c
 parser.add_argument('--list-chats', action='store_true', help='List all chats')
 parser.add_argument('--list-all-chats', action='store_true', help='List all chats including hidden backup chats')
 parser.add_argument('--list-models', action='store_true', help='List all models')
+parser.add_argument('--list-models-full', action='store_true', help='List all models and their details')
 parser.add_argument('--speak', default=speak_default, action='store_true', help='Speak the messages.')
 parser.add_argument('-p', '--personality', default='helpful_assistant', type=str, choices=[x.stem for x in prompt_dir.iterdir()], help='Set the system prompt based on predefined file.')
 parser.add_argument('--config', action='store_true', help='Open the config file.')
@@ -492,6 +496,11 @@ def main():
     user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
     def bottom_toolbar():
         return str(bottom_toolbar_session)
+    
+    if args.list_models_full:
+        for m in sorted(openai.Model.list()['data'], key=lambda x: x['id']): 
+            print(m)
+        exit(0)
 
     if args.list_models:
         print('available models:')
