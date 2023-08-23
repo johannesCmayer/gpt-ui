@@ -377,14 +377,14 @@ def get_summary(chat):
         print('Error: ', e)
     return summary
 
-class toolbar:
+class Toolbar:
     def __init__(self):
         self.n_tokens = 0
         self.summary = ''
         self.worker = None
 
     def __str__(self):
-        return f'{int(self.n_tokens/max_tokens*100)}% {self.n_tokens}/{max_tokens} | {args.personality} | {self.summary}'
+        return f'{model} | {int(self.n_tokens/max_tokens*100)}% {self.n_tokens}/{max_tokens} | {args.personality} | {self.summary}'
 
     def background_update(self, chat):
         if self.worker is None or not self.worker.is_alive():
@@ -402,7 +402,7 @@ class toolbar:
     def _update_summary(self, chat):
         self.summary = get_summary(chat)
 
-bottom_toolbar_session = toolbar()
+bottom_toolbar_session = Toolbar()
 
 class Speaker:
     def __init__(self):
