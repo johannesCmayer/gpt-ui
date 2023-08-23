@@ -45,7 +45,7 @@ if config_file_local.exists():
     config.update(yaml.load(config_file_local.open(), yaml.FullLoader))
 openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 
-model = config['model']
+model = config['default_model']
 user = config['user']
 max_tokens_dict = { 
     'gpt-4': 8192,
