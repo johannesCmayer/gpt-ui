@@ -47,7 +47,7 @@ openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoade
 
 model = config['model']
 user = config['user']
-#models = yaml.load((project_dir / 'models_metadata.yaml').open(), yaml.FullLoader)
+models_dict = yaml.load((project_dir / 'models_metadata.yaml').open(), yaml.FullLoader)
 max_tokens_dict = { 
     'gpt-4': 8192,
     'gpt-3.5-turbo': 4096,
@@ -635,11 +635,18 @@ def main():
                     Speaker().speak(speak_cmd, chat[-1]['content'])
                     continue
 
-                for n_model in models:
+                # Check if the user input starts with a model identifier, and if so,
+                # set the model appropriately
+                for n_model in models_dict.values():
                     for name in [n_model['name']] + n_model['aliases']:
                         if user_input.startswith(name):
-                            model = model['name']
+                            global model
+                            global max_tokens
+                            model = n_model['name']
+                            max_tokens = n_model['max_tokens']
+                            user_input = user_input[len(name):].strip()
                         continue
+
                 append_to_chat(chat, active_role, user_input)
                 backup_chat(chat)
                 active_role = next_role(chat)

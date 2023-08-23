@@ -1,0 +1,21 @@
+gpt-4:
+  name: gpt-4
+  max_tokens: 8192
+  cost_per_input_token:  0.00003
+  cost_per_output_token: 0.00006
+  aliases: 
+    - g4
+gpt-3.5-turbo:
+  name: gpt-3.5-turbo
+  max_tokens: 4096
+  cost_per_input_token:  0.0000015
+  cost_per_output_token: 0.000002
+  aliases: 
+    - g3
+gpt-3.5-turbo-16k: 
+  name: gpt-3.5-turbo-16k
+  max_tokens: 16384
+  cost_per_input_token:  0.000003
+  cost_per_output_token: 0.000004
+  aliases: 
+    - g3l
