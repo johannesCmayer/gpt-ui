@@ -64,7 +64,7 @@ else:
     chat_dir = project_dir / "chats"
     chat_dir.mkdir(exist_ok=True)
 
-chat_backup_file = chat_dir / f".backup_{timestamp()}"
+chat_backup_file = chat_dir / f".backup_{timestamp()}.json"
 
 prompt_history_dir = project_dir / "prompt_history"
 prompt_history_dir.mkdir(exist_ok=True)
@@ -107,6 +107,7 @@ parser.add_argument('--speak', default=speak_default, action='store_true', help=
 parser.add_argument('-p', '--personality', default='helpful_assistant', type=str, choices=[x.stem for x in prompt_dir.iterdir()], help='Set the system prompt based on predefined file.')
 parser.add_argument('--config', action='store_true', help='Open the config file.')
 parser.add_argument('--debug', action='store_true', help='Run with debug settings. Includes notifications.')
+parser.add_argument('--export-chats-to-markdown', action='store_true', help='Re export all named chats as markdown files into the chat directory.')
 parser.add_argument('user_input',  type=str, nargs='*', help='Initial input the user gives to the chat bot.')
 args = parser.parse_args()
 if args.user_input == []:
@@ -214,19 +215,19 @@ def trim_chat(chat):
 def backup_chat(chat, name=None, prompt_name=None):
     if len(chat) == 0:
         return
-    # Always backup chat, even if name will be provided
-    with chat_backup_file.open("w") as f:
+    # Always backup chat first, even if we are prompting for a name
+    with ensure_extension(chat_backup_file, ".json").open("w") as f:
         json.dump(chat, f, indent=4)
     if prompt_name:
         try:
             user_input_name = pt.prompt("Save name: ")
-            with (chat_dir / user_input_name).open("w") as f:
+            with (chat_dir / ensure_extension(user_input_name, "json")).open("w") as f:
                 json.dump(chat, f, indent=4)
             return user_input_name
         except EOFError as e:
             pass
     elif name:
-        with (chat_dir / name).open("w") as f:
+        with (chat_dir / ensure_extension(name, '.json')).open("w") as f:
             json.dump(chat, f, indent=4)
         return name
     else:
@@ -339,10 +340,18 @@ def explode_file_links(chat):
 
 def ensure_extension(string: str, ext: str) -> str:
     """Ensure that the text ends with a particular extension."""
+    path = False
+    if isinstance(string, Path):
+        string = str(string)
+        path = True
+    return_value = None
     if string.endswith(ext):
-        return string
+        return_value = string
     else:
-        return f"{string}{ext}"
+        return_value = f"{string}{ext}"
+    if path:
+        return_value = Path(return_value)
+    return return_value
 
 
 def resolve_obsidian_links(chat):
@@ -486,13 +495,24 @@ def get_first_sentence(text: str) -> Tuple[str, str]:
             break
     return first_sentence, remaining_text
 
+def chat_to_markdown(chat):
+    markdown = '%% Auto geneterated file, do not edit %%\n\n'
+    for m in chat:
+        if m['role'] == 'assistant':
+            speaker = m.get('model', 'assistant')
+        elif m['role'] == 'user':
+            speaker = m.get('user', 'user')
+        else:
+            speaker = m['role']
+        markdown += f"**{speaker}:** {m['content']}\n"
+    return markdown
+
+def save_chat_as_markdown(chat, name):
+    with (chat_dir / f"{name}.md").open("w") as f:
+        f.write(chat_to_markdown(chat))
 
 def main():
     speak_cmd = 'gsay'
-    # if platform.system() == 'Darwin':
-    #     speak_cmd = 'say'
-    # else:
-    #     speak_cmd = 'gsay'
     save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
     user_prompt_session = PromptSession(history=FileHistory(project_dir /'user_prompt.txt'), auto_suggest=AutoSuggestFromHistory())
     def bottom_toolbar():
@@ -520,12 +540,22 @@ def main():
     elif args.config:
         os.system(f"vi {config_file}")
         exit(0)
+    if args.export_chats_to_markdown:
+        for chat_file in chat_dir.iterdir():
+            if chat_file.is_file() and not chat_file.name.startswith('.'):
+                with chat_file.open() as f:
+                    try:
+                        chat = json.load(f)
+                        save_chat_as_markdown(chat, chat_file.stem)
+                    except Exception as e:
+                        print(f"Error while exporting chat {chat_file}: {e}")
+        exit(0)
 
     if args.user_input:
         chat = GET_DEFAULT_CHAT()
         chat.append({'role': 'user', 'content': args.user_input, 'user': config['user']})
     elif args.load_chat:
-        with (chat_dir / args.load_chat).open() as f:
+        with (chat_dir / ensure_extension(args.load_chat, ".json")).open() as f:
             chat = json.load(f)
     elif args.load_last_chat:
         chat_path = [x for x in sorted(chat_dir.iterdir()) if x.is_file() and x.name.startswith('.backup')][-1]
@@ -568,6 +598,7 @@ def main():
                                 continue
                         time.sleep(0.1)
                     chat_save_name = backup_chat(chat, chat_name)
+                    save_chat_as_markdown(chat, chat_name)
                     pt.print_formatted_text(f"Chat saved as: {chat_save_name}")
                     exit(0)
                 elif user_input in commands.pass_.str_matches:
@@ -599,7 +630,7 @@ def main():
                     chat_name = pt.prompt('Name of chat to load: ')
                     if chat_name == 'exit':
                         continue
-                    with chat_dir.joinpath(chat_name).open() as f:
+                    with chat_dir.joinpath(ensure_extension(chat_name, ".json")).open() as f:
                         backup_chat(chat)
                         chat = json.load(f)
                     print('\n\n')
@@ -611,7 +642,7 @@ def main():
                         if chat_name == 'exit':
                             continue
                         time.sleep(0.1)
-                    with (chat_dir / chat_name).open("w") as f:
+                    with (chat_dir / ensure_extension(chat_name, ".json")).open("w") as f:
                         json.dump(chat, f, indent=4)
                     continue
                 elif user_input in commands.edit.str_matches:
