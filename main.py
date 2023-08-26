@@ -511,6 +511,13 @@ def save_chat_as_markdown(chat, name):
     with (chat_dir / f"{name}.md").open("w") as f:
         f.write(chat_to_markdown(chat))
 
+def sanetize_filename(filename):
+    """Sanetize a filename to be safe to use on most filesystems, as well as work with the Obsidian sync plugin."""
+    filename = re.sub(':', ' - ', filename)
+    filename = re.sub('[<>"/\|?*]+', '', filename)
+    filename = re.sub('\.^', '', filename)
+    return filename.strip()
+    
 def main():
     speak_cmd = 'gsay'
     save_name_session = PromptSession(history=FileHistory(prompt_history_dir /'saveing.txt'), auto_suggest=AutoSuggestFromHistory())
@@ -585,7 +592,7 @@ def main():
                     while not chat_name or chat_name == '':
                         abort = False
                         try:
-                            chat_name = save_name_session.prompt('Save name: ', default=get_summary(chat), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
+                            chat_name = save_name_session.prompt('Save name: ', default=sanetize_filename(bottom_toolbar_session.summary), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
                         except EOFError as e:
                             ctrl_d += 1
                         except KeyboardInterrupt as e:
@@ -597,6 +604,7 @@ def main():
                                 chat_name = ''
                                 continue
                         time.sleep(0.1)
+                    chat_name = sanetize_filename(chat_name)
                     chat_save_name = backup_chat(chat, chat_name)
                     save_chat_as_markdown(chat, chat_name)
                     pt.print_formatted_text(f"Chat saved as: {chat_save_name}")
