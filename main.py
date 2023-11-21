@@ -48,11 +48,7 @@ openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoade
 model = config['default_model']
 user = config['user']
 models_dict = yaml.load((project_dir / 'models_metadata.yaml').open(), yaml.FullLoader)
-max_tokens_dict = { 
-    'gpt-4': 8192,
-    'gpt-3.5-turbo': 4096,
-    'gpt-3.5-turbo-16k': 16384 }
-max_tokens = max_tokens_dict[model]
+max_tokens = models_dict[model]['max_tokens']
 speak_default = config['speak']
 
 # Setting up paths 2/2
@@ -518,7 +514,7 @@ def main():
         list_chats(hide_backups=False)
         exit(0)
     elif args.config:
-        os.system(f"vi {config_file}")
+        subprocess.run([os.environ['EDITOR'], config_file])
         exit(0)
 
     if args.user_input:

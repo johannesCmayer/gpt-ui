@@ -19,3 +19,10 @@ gpt-3.5-turbo-16k:
   cost_per_output_token: 0.000004
   aliases: 
     - g3l
+gpt-4-1106-preview:
+  name: gpt-4-1106-preview
+  max_tokens: 128000
+  cost_per_input_token:  0.00001
+  cost_per_output_token: 0.00003
+  aliases: 
+    - g4t

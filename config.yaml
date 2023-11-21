@@ -1,5 +1,5 @@
 speak: true
-default_model: gpt-4
+default_model: gpt-4-1106-preview
 user: Johannes
 prompt_postfix: " "
 obsidian_vault_dir: ~/writing/obsidian/main
