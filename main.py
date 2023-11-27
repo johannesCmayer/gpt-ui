@@ -16,7 +16,7 @@ from copy import deepcopy
 from typing import List, Optional, Tuple, Union, Any
 import html
 from threading import Thread
-from queue import Queue
+import sys
 
 import tiktoken
 import yaml
@@ -31,6 +31,13 @@ from prompt_toolkit.completion import WordCompleter
 # Basic helper functions
 def timestamp():
     return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
+
+def set_terminal_title(title):
+    if platform.system() == 'Windows':
+        os.system(f'title {title}')
+    else:
+        sys.stdout.write(f"\x1b]0;{title}\x07")
+        sys.stdout.flush()
 
 # Setting up Paths and looading config 1/2
 project_dir = Path(__file__).parent.absolute()
@@ -406,6 +413,7 @@ class Toolbar:
 
     def _update_summary(self, chat):
         self.summary = get_summary(chat)
+        set_terminal_title(f"GPT {self.summary}")
 
 bottom_toolbar_session = Toolbar()
 
