@@ -189,8 +189,9 @@ def print_chat(chat):
     for m in chat:
         name = m['model'] if m['role'] == 'assistant' \
                           else (m['user'] if m['role'] == 'user' else 'system')
-        name += ':'
-        pt.print_formatted_text(HTML(f"{color_by_role(m['role'], name)}{config['prompt_postfix']}"))
+        prompt = f'{name}:'
+        prompt += config['prompt_postfix']
+        pt.print_formatted_text(HTML(f"{color_by_role(m['role'], prompt)}"))
         pt.print_formatted_text(f"{m['content']}")
 
 def append_to_chat(chat, role, content, l_date=None, l_model=None, l_user=None):
@@ -295,7 +296,7 @@ def edit_chat(chat, user_input):
 
 def list_chats(hide_backups=True):
     for chats in sorted(chat_dir.iterdir()):
-        if chats.is_dir():
+        if chats.is_dir() or chats.name.endswith('.md'):
             continue
         color = 'green'
         if hide_backups and chats.name.startswith('.'):
@@ -588,7 +589,11 @@ def main():
                 try:
                     prompt = f'{user_name}:{prompt_postfix}'
                     prompt = color_by_role(active_role, prompt)
-                    user_input = user_prompt_session.prompt(HTML(prompt), bottom_toolbar=bottom_toolbar, auto_suggest=AutoSuggestFromHistory())
+                    user_input = user_prompt_session.prompt(
+                        HTML(prompt), 
+                        bottom_toolbar=bottom_toolbar, 
+                        auto_suggest=AutoSuggestFromHistory(),
+                        multiline=True)
                 except EOFError as e:
                     ctrl_d += 1
                 if ctrl_d > 0 or user_input in commands.exit.str_matches:
