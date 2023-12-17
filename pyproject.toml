@@ -5,6 +5,10 @@ description = "A chat interface for LLMs"
 authors = ["Johannes C. Mayer <j.c.mayer240@gmail.com>"]
 license = "MIT"
 readme = "README.md"
+include = [
+    "models_metadata.yaml",
+    'prompts/*'
+]
 
 [tool.poetry.scripts]
 gpt = "gpt_ui:main"
@@ -16,6 +20,7 @@ prompt-toolkit = "^3.0.43"
 tiktoken = "^0.5.2"
 pyyaml = "^6.0.1"
 gsay = {path = "../gsay"}
+xdg-base-dirs = "^6.0.1"
 
 [build-system]
 requires = ["poetry-core"]

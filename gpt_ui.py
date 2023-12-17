@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple, Union, Any
 import html
 from threading import Thread
 import sys
+from gsay import speak
 
 import tiktoken
 import yaml
@@ -27,6 +28,7 @@ from prompt_toolkit import HTML, PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
+from xdg_base_dirs import xdg_config_home
 
 # Basic helper functions
 def timestamp():
@@ -42,15 +44,16 @@ def set_terminal_title(title):
 # Setting up Paths and looading config 1/2
 project_dir = Path(__file__).parent.absolute()
 
-config_file = project_dir / "config.yaml"
-config_file_local = project_dir / "config_local.yaml"
+config_dir = xdg_config_home() / 'gpt-ui'
+config_file = config_dir / "config.yaml"
+config_file_local = config_dir / "config_local.yaml"
 
 # Loading config
 config = yaml.load(config_file.open(), yaml.FullLoader)
 # Load local config file and overwrite default config
 if config_file_local.exists():
     config.update(yaml.load(config_file_local.open(), yaml.FullLoader))
-openai.api_key = yaml.load((project_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
+openai.api_key = yaml.load((config_dir / 'api_key.yaml').open(), yaml.FullLoader).get('api_key')
 
 model = config['default_model']
 user = config['user']

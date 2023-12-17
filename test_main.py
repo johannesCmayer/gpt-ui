@@ -1,5 +1,5 @@
 import json
-import main
+import gpt_ui
 
 test_chat_1 = [
     {
@@ -40,7 +40,7 @@ test_chat_1 = [
 ]
 
 def test_backup_chat():
-    chat_path = main.chat_dir / "test_chat_1.json"
-    main.backup_chat(test_chat_1, chat_path)
+    chat_path = gpt_ui.chat_dir / "test_chat_1.json"
+    gpt_ui.backup_chat(test_chat_1, chat_path)
     with chat_path.open() as f:
         assert json.load(f) == test_chat_1
