@@ -17,11 +17,12 @@ from typing import List, Optional, Tuple, Union, Any
 import html
 from threading import Thread
 import sys
+import gsay
 
 import tiktoken
 import yaml
 import openai
-from openai.error import TryAgain
+from openai import APITimeoutError
 import prompt_toolkit as pt
 from prompt_toolkit import HTML, PromptSession
 from prompt_toolkit.history import FileHistory
@@ -711,7 +712,7 @@ def main():
                             stream = True,
                         )
                         break
-                    except TryAgain as e:
+                    except TimeoutError as e:
                         if try_idx > max_retries:
                             backup_chat(chat)
                             raise e

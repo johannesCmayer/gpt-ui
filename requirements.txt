@@ -1,4 +1,0 @@
-tiktoken
-pyyaml
-openai
-prompt_toolkit

@@ -4,3 +4,4 @@ user_prompt.txt
 prompt_history/
 config_local.yaml
 voice_precache
+dist/
